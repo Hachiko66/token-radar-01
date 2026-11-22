@@ -1,4 +1,4 @@
-# Token Radar — radar-3
+# Token Radar — radar-4
 
 [![make.fun · token-radar-01](https://make.fun/badge/token-radar-01.svg)](https://make.fun/bounty/token-radar-01?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
 [![rank](https://make.fun/badge/token-radar-01/Hachiko66/token-radar-01/rank.svg)](https://make.fun/bounty/token-radar-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
@@ -10,26 +10,31 @@ It reads the sealed DefiLlama snapshot (758 protocols, as of 2026-11-14),
 scores every pre-token protocol, and hands in a static dashboard that
 ranks them by implied value and shows how to farm each one.
 
-## Model — radar-3
+## Model — radar-4
 
 ```
 implied = round(
   tvl_usd x 0.25
-  x (1 + clamp(change_7d, -50, 180) / 100 x 0.85)
-  x (0.5 + min(age_days, 1095) / 1095 x 0.5)
+  x (1 + clamp(change_7d, -50, 150) / 100 x 1.0)
+  x (0.5 + sqrt(min(age_days, 1095) / 1095) x 0.5)
   x categoryMult x chainMult
 )
 ```
 
-- `categoryMult`: Dexs and Lending 1.15, Yield and Derivatives 1.10,
-  RWA 1.08, Risk Curators 1.05, staking derivatives 0.90, Bridge 0.85.
+- `categoryMult`: Dexs and Lending 1.15, Yield, Derivatives, Risk Curators
+  and Capital Allocators 1.10, RWA 1.08, staking derivatives 0.90,
+  Bridge 0.85.
 - `chainMult`: 1 + 0.03 per extra chain, up to 8 extra chains.
 - Age is days since first listing; unknown age uses 180 days.
 - No protocol name is special-cased. The same function scores every row.
 
-radar-3 sharpens radar-2 where the snapshot says the signal is: growth
-and maturity now spread the board wider, so a fast-growing, long-running
-protocol outranks a large flat one.
+radar-4 sharpens radar-3 where the snapshot says the signal is: growth
+carries its full weight (1.0, capped at +150%), maturity follows a survival
+curve instead of a straight line (the first year with no token proves the
+most), and vault curators score 1.10. The detail view now says in one
+sentence why each protocol ranks where it does, and shows its implied value
+per $1 of TVL, so the board's judgement is visible row by row instead of
+only in the formula.
 
 The board covers all 40 watchlist protocols and adds 186 pre-token
 protocols below the $50M floor, by TVL — 226 rows in total. Live-token
@@ -41,7 +46,8 @@ protocols are set aside with their market caps, never mixed into the ranking.
 
 - Search, category filter, and chain filter
 - Sortable board by implied value, TVL, 7-day growth, age, and name
-- A detail view for every protocol with its model breakdown and farm plan
+- A detail view for every protocol with its model breakdown, a one-sentence
+  reason for its rank, its implied value per $1 of TVL, and its farm plan
 - A live-token view set aside from the pre-token ranking
 - A Top 3 spotlight and a full model explanation
 
