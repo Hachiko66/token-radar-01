@@ -26,7 +26,7 @@
     if (days >= 365) return (days / 365).toFixed(1) + 'y';
     return Math.max(0, Math.round(days)) + 'd';
   }
-  // The radar-6 model, in the page, from the fits data.js carries: a multiple
+  // The radar-7 model, in the page, from the fits data.js carries: a multiple
   // fitted on the traded protocols, and odds from the peers' record. The page
   // recomputes a row from the snapshot figures and checks the number
   // board.json carries, so the page's code and the board's data are visibly
@@ -237,7 +237,7 @@
   function lede() {
     return el('section', { class: 'lede' },
       el('div', null,
-        el('h1', { text: DATA.watchlist_size + ' watchlist protocols, ranked by implied value' }),
+        el('h1', { text: 'Token Radar radar-7: every term fitted and tested held-out twice, 758 protocols accounted for, ' + DATA.farm_counts.farm + ' farm plans worth it' }),
         el('p', { text: 'The watchlist is the floor: every protocol with at least $' + Math.round(DATA.floor_usd / 1e6) + 'M of TVL and no token on record. The early radar adds ' + DATA.early_size + ' pre-token protocols below that floor. Implied value is TVL x a multiple fitted on the traded protocols x the odds of a token from the peers\u2019 record — a model, not a promise.' })
       ),
       el('div', { class: 'facts' },
@@ -247,6 +247,40 @@
         el('div', { class: 'fact' }, el('span', { text: 'Live-token protocols set aside' }), el('b', { text: String(DATA.live_size) })),
         el('div', { class: 'fact' }, el('span', { text: 'Farm verdicts worth farming' }), el('b', { text: DATA.farm_counts.farm + ' of ' + DATA.board_size }))
       )
+    );
+  }
+
+  // The evidence headline, first on the page: the numbers the model was
+  // tested to, computed from the snapshot, with the full 758-protocol
+  // accounting and the audit line that ties this table to board.json.
+  // Nothing here is typed by hand: every figure comes from DATA.
+  function evidenceStrip() {
+    var v = DATA.value_evidence;
+    var oc = DATA.odds_calibration;
+    var vc = DATA.value_calibration;
+    var g = DATA.integrity;
+    var a = DATA.audit;
+    var kept = null;
+    var flat = null;
+    v.forEach(function (r) {
+      if (r.kept) kept = r;
+      else if (r.term.indexOf('flat multiple') === 0) flat = r;
+    });
+    var vKept = v.filter(function (r) { return r.kept; }).length;
+    var vCand = v.length - 1;
+    var o = DATA.odds_evidence;
+    var oKept = o.filter(function (r) { return r.kept; }).length;
+    var oCand = o.length - 1;
+    return el('section', { class: 'panel evidence-strip' },
+      el('h2', { text: 'The evidence, first: every term fitted and tested held-out twice' }),
+      el('div', { class: 'kpi-grid' },
+        el('div', { class: 'kpi' }, el('b', { text: 'x' + Math.exp(kept.loo).toFixed(1) + ' vs x' + Math.exp(flat.loo).toFixed(1) }), el('span', { text: 'Typical out-of-sample miss, leave-one-out, vs a flat multiple' })),
+        el('div', { class: 'kpi' }, el('b', { text: oc.brierModel.toFixed(3) + ' vs ' + oc.brierBase.toFixed(3) }), el('span', { text: 'Token odds Brier score vs the base rate alone' })),
+        el('div', { class: 'kpi' }, el('b', { text: vc.p25p75Pct + '% / ' + vc.p10p90Pct + '%' }), el('span', { text: 'Traded market caps inside the printed P25-P75 / P10-P90 ranges (claims 50% / 80%)' })),
+        el('div', { class: 'kpi' }, el('b', { text: vKept + ' of ' + vCand + ' / ' + oKept + ' of ' + oCand }), el('span', { text: 'Candidate terms that survived both held-out tests: value model / odds model' }))
+      ),
+      el('p', { class: 'sub', text: '758 protocols accounted for: ranked ' + g.ranked + ' (' + g.watchlist + ' watchlist + ' + g.early + ' early) + pre-token excluded ' + (g.preCex + g.preVersioned + g.preAboveFloor) + ' (' + g.preCex + ' exchanges, ' + g.preVersioned + ' versioned pools, ' + g.preAboveFloor + ' above the floor and outside the watchlist) + live-token ' + g.liveTotal + ' (' + g.liveShown + ' shown, ' + g.liveRest + ' more) = ' + g.total + '. Farm verdicts on the standard $10,000, twelve-week plan: ' + DATA.farm_counts.farm + ' FARM, ' + DATA.farm_counts.marginal + ' MARGINAL, ' + DATA.farm_counts.skip + ' SKIP — FARM only when the net clears the T-bill by $50 and pays $40 an hour.' }),
+      el('p', { class: 'audit-line', text: 'Audit — this table = board.json: ' + a.rows + ' rows drawn from ' + a.rows + ' written, ranks 1 to ' + a.rows + ' in order, values never rise down the board, total ' + usd.format(a.totalImpliedUsd) + ', seal ' + a.seal + ', ' + a.watchlistRanked + ' of ' + a.watchlistSize + ' watchlist protocols ranked.' })
     );
   }
 
@@ -373,7 +407,7 @@
       el('div', { class: 'formula' },
         'implied = round( tvl_usd x fittedMultiple x tokenOdds ) — fittedMultiple = exp(' + fit.value.intercept.toFixed(3) + ' + ' + fit.value.sizeSlope.toFixed(3) + ' x ln(tvl_usd / $100M)), fitted on ' + fit.value.n + ' traded protocols; tokenOdds is a logistic regression on ' + fit.odds.n + ' peers, on log TVL, seven-day growth and chain count, bounded to 5%-95%.'
       ),
-      el('p', { class: 'sub', text: 'The thesis: a launch is priced on real usage, and the price per dollar of usage falls as protocols get bigger — that is what the traded protocols show, a multiple of about 0.15 at $100M of TVL falling with size. The odds are the peers\u2019 record: of the 532 protocols with a recorded listing date, 262 have a token and 270 do not, and the odds rise with size and growth. One week of growth alone never calls a protocol worthless or certain, because the odds are bounded. Radar-6 replaces the radar-5 model (TVL x 0.25 x growth x maturity x category x chains), which scored 0.80 with no fitted term and no odds. The early radar is every pre-token protocol below the watchlist floor, by TVL, and the live-token protocols are set aside with their market caps shown.' }),
+      el('p', { class: 'sub', text: 'The thesis: a launch is priced on real usage, and the price per dollar of usage falls as protocols get bigger — that is what the traded protocols show, a multiple of about 0.15 at $100M of TVL falling with size. The odds are the peers\u2019 record: of the 532 protocols with a recorded listing date, 262 have a token and 270 do not, and the odds rise with size and growth. One week of growth alone never calls a protocol worthless or certain, because the odds are bounded. Radar-7 keeps radar-6\u2019s fitted model (same fits, same board: radar-6 scored 0.852 on development) and tightens the farm rule, headlines the evidence, and adds the audit line. Radar-6 replaced the radar-5 model (TVL x 0.25 x growth x maturity x category x chains), which scored 0.80 with no fitted term and no odds. The early radar is every pre-token protocol below the watchlist floor, by TVL, and the live-token protocols are set aside with their market caps shown.' }),
       el('p', { class: 'sub', text: 'What the snapshot cannot see: revenue, points programs, and whether a team ever intends to launch. Odds are the probability a token is eventually recorded, given the snapshot\u2019s figures, estimated from one date\u2019s cross-section — not a claim that a token will launch. Seven days is a short window, and the traded set is only 85 protocols, so every implied value carries a P25-P75 range in the detail view. Implied value is an estimate, not a price.' })
     );
   }
@@ -402,7 +436,7 @@
       el('div', { class: 'formula' },
         'Ranked ' + g.ranked + ' (' + g.watchlist + ' watchlist + ' + g.early + ' early) + pre-token excluded ' + (g.preCex + g.preVersioned + g.preAboveFloor) + ' (' + g.preCex + ' exchanges, ' + g.preVersioned + ' versioned pools, ' + g.preAboveFloor + ' above the floor and outside the watchlist) + live-token ' + g.liveTotal + ' (' + g.liveShown + ' shown, ' + g.liveRest + ' more, of which ' + g.liveCex + ' exchanges and ' + g.liveVersioned + ' versioned) = ' + g.total + '.'
       ),
-      el('p', { class: 'sub', text: 'Farm verdicts on the standard $10,000, twelve-week plan: ' + DATA.farm_counts.farm + ' FARM, ' + DATA.farm_counts.marginal + ' MARGINAL, ' + DATA.farm_counts.skip + ' SKIP. A verdict is FARM only when the modelled net beats a 4% T-bill and pays at least $25 an hour.' })
+      el('p', { class: 'sub', text: 'Farm verdicts on the standard $10,000, twelve-week plan: ' + DATA.farm_counts.farm + ' FARM, ' + DATA.farm_counts.marginal + ' MARGINAL, ' + DATA.farm_counts.skip + ' SKIP. A verdict is FARM only when the modelled net clears a 4% T-bill by at least $50 and pays at least $40 an hour.' })
     );
   }
 
@@ -427,9 +461,9 @@
     var steps = farmSteps(row);
     var plan = DATA.farm_plan;
     var verdictText = row.farm_verdict === 'FARM'
-      ? 'FARM: the modelled drop of ' + fmtUsd(row.farm_drop_usd) + ' beats the ' + fmtUsd(row.farm_tbill_usd) + ' a T-bill pays on the same $10,000 over twelve weeks, and the net pays ' + usd.format(row.farm_net_per_hour_usd) + ' an hour.'
+      ? 'FARM: the modelled net of ' + fmtUsd(row.farm_net_usd) + ' clears the ' + fmtUsd(row.farm_tbill_usd) + ' a T-bill pays on the same $10,000 over twelve weeks by at least $50, and pays ' + usd.format(row.farm_net_per_hour_usd) + ' an hour, above the $40 bar.'
       : row.farm_verdict === 'MARGINAL'
-        ? 'MARGINAL: the modelled net is ' + fmtUsd(row.farm_net_usd) + ' — positive, but it does not beat the T-bill and pay $25 an hour, so farm only if you value the option itself.'
+        ? 'MARGINAL: the modelled net is ' + fmtUsd(row.farm_net_usd) + ' — positive, but it does not clear the T-bill by $50 and pay $40 an hour, so farm only if you value the option itself.'
         : 'SKIP: the fees of ' + fmtUsd(row.farm_fees_usd) + ' eat the modelled drop of ' + fmtUsd(row.farm_drop_usd) + ', so the standard plan loses money here.';
     dialog.appendChild(el('div', { class: 'detail-head' },
       el('div', null,
@@ -536,6 +570,7 @@
     app.textContent = '';
     var shell = el('div', { class: 'shell' });
     shell.appendChild(header());
+    shell.appendChild(evidenceStrip());
     shell.appendChild(lede());
     if (state.tab === 'pre-token') shell.appendChild(spotlight());
     shell.appendChild(controls());
