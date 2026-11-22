@@ -20,6 +20,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSyn
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { boardIssue, buildRadar, dataScript, parseSnapshot } from './lib/model.ts';
+import { boardSentence, boardStats, formatUsd } from './lib/summary.ts';
 import { buildDossier } from './vendor/makefun-board.ts';
 
 const repoRoot = fileURLToPath(new URL('.', import.meta.url));
@@ -58,9 +59,9 @@ if (problem !== null) {
 
 /** A short human summary of the board: total value and the top three. */
 function summarizeBoard(): string {
-  const total = board.reduce((sum, row) => sum + row.implied_value_usd, 0);
+  const stats = boardStats(board);
   const topThree = board.slice(0, 3).map((row) => `${row.name} ${row.implied_value_usd}`).join(', ');
-  return `total implied $${total.toLocaleString('en-US')}; top: ${topThree}`;
+  return `total implied ${formatUsd(stats.totalImpliedUsd)}; median ${formatUsd(stats.medianImpliedUsd)}; top: ${topThree}; ${stats.growingRows} growing, ${stats.shrinkingRows} shrinking across ${stats.chainsCovered} chains`;
 }
 
 mkdirSync(outDir, { recursive: true });
@@ -99,5 +100,6 @@ writeFileSync(join(outDir, 'dossier.json'), buildDossier(outDir, { text_max_byte
 process.stdout.write(
   `token radar: ${snapshot.protocols.length} protocols, ${snapshot.watchlist.length} on the watchlist, ${board.length} rows scored (${radar.early_size} early, ${radar.live_size} live set aside)\n` +
     `token radar: ${summarizeBoard()}\n` +
+    `token radar: ${boardSentence(board, snapshot.watchlist.length)}\n` +
     `token radar: wrote ${join(outDir, 'board.json')}, ${join(outDir, 'data.js')}, ${join(outDir, 'dashboard')} (3 files), ${join(outDir, 'screenshots')} (${shotNames.length} images) and ${join(outDir, 'dossier.json')}\n`,
 );
