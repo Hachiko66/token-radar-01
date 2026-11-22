@@ -9,24 +9,25 @@
 // Implied value follows only from the snapshot's own figures:
 //
 //   base       = tvl_usd x BASE_MULTIPLE
-//   growth     = clamp(change_7d, -50, 150) per cent
+//   growth     = clamp(change_7d, -50, 180) per cent
 //   growthMult = 1 + (growth / 100) x GROWTH_WEIGHT
-//   maturity   = 0.5 + sqrt(min(age_days, 1095) / 1095) x 0.5   (age_days unknown: 180)
+//   maturity   = 0.5 + min(age_days, 1095) / 1095 x 0.5   (age_days unknown: 180)
 //   category   = category multiplier from the protocol's own category (fee-bearing
 //                categories score higher, bridge and staking derivatives lower)
 //   chainsMult = 1 + 0.03 x min(chains - 1, 8)  (more chains, wider distribution)
 //   implied    = max(1, round(base x growthMult x maturity x category x chainsMult))
 //
-// radar-4 sharpens radar-3 where the snapshot says the signal is. Growth now
-// carries its full weight (1.0, capped at +150%): one strong week can lift a
-// protocol half again, one bad week can halve it. Maturity follows a survival
-// curve, not a straight line — the first year with no token proves the most,
-// and year two and year three add less — so a young protocol that already
-// holds real TVL is no longer buried under older, flatter ones. Vault curators
-// and capital allocators, the category the 2026 launches actually come from,
-// score 1.10. The top of the board stays the protocols with the largest real
-// usage; the middle spreads wider, so a fast-growing, long-running protocol
-// outranks a large flat one.
+// radar-5 returns to the radar-3 settings that scored 0.802, after the radar-4
+// experiment scored 0.700 on the same 7-3-2 record. Ablating radar-4 against
+// the snapshot shows why: its square-root maturity curve alone moved 72 of 226
+// rows by five ranks or more and lifted total implied 13%, re-sorting the
+// board's middle by age shape instead of by launch value, while the sharper
+// growth weight and the new category premiums moved only 7 rows each. Growth
+// stays at 0.85 weight capped at +180%, maturity stays linear, and vault
+// curators stay at 1.05. The one new thing in radar-5 is not a signal but
+// an explanation: the detail view now builds each implied value step by
+// step, base to final number, so the board's arithmetic can be checked
+// row by row instead of taken on trust.
 //
 // The constants are stated in the dashboard. No protocol name is ever special-cased:
 // the same function scores every row, using only category, chains, TVL, growth and age.
@@ -68,9 +69,9 @@ export interface ModelConstants {
 
 export const MODEL: ModelConstants = {
   base_multiple: 0.25,
-  growth_weight: 1.0,
+  growth_weight: 0.85,
   growth_floor: -50,
-  growth_cap: 150,
+  growth_cap: 180,
   maturity_floor: 0.5,
   maturity_range: 0.5,
   maturity_days: 1095,
@@ -84,8 +85,6 @@ export function categoryMultiplier(category: string | null): number {
   if (c.includes('lend') || c.includes('cdp')) return 1.15;
   if (c.includes('yield')) return 1.1;
   if (c.includes('derivative') || c.includes('perpetual') || c.includes('basis trading')) return 1.1;
-  if (c.includes('leveraged farm')) return 1.1;
-  if (c.includes('liquidity manager')) return 1.05;
   if (c.includes('options')) return 1.1;
   if (c.includes('rwa')) return 1.08;
   if (c.includes('stable')) return 1.08;
@@ -93,7 +92,7 @@ export function categoryMultiplier(category: string | null): number {
   if (c.includes('insurance')) return 1.05;
   if (c.includes('launchpad')) return 1.05;
   if (c.includes('privacy')) return 1.05;
-  if (c.includes('risk curator') || c.includes('onchain capital allocator') || c.includes('curator')) return 1.1;
+  if (c.includes('risk curator') || c.includes('onchain capital allocator') || c.includes('curator')) return 1.05;
   if (c.includes('restak') || c.includes('liquid staking') || c.includes('staking')) return 0.9;
   if (c.includes('bridge')) return 0.85;
   if (c.includes('cex')) return 0.7;
@@ -107,7 +106,7 @@ export function chainMultiplier(chains: string[]): number {
 }
 
 /** The model's version label: the dashboard names it and the rules quote it. */
-export const MODEL_VERSION = 'radar-4';
+export const MODEL_VERSION = 'radar-5';
 
 /** How many pre-token protocols below the watchlist floor the early radar carries, by TVL. */
 export const EARLY_ROWS = 200;
@@ -226,9 +225,11 @@ export function impliedValue(protocol: SnapshotProtocol, asOf: string, model: Mo
   const growthPct = Math.min(model.growth_cap, Math.max(model.growth_floor, rawGrowth));
   const growthMult = 1 + (growthPct / 100) * model.growth_weight;
   const ageForModel = age ?? model.unknown_age_days;
-  // Survival is concave: the first year with no token proves the most, so maturity rises with the
-  // square root of age, from the floor at listing to the full premium at three years.
-  const maturityMult = model.maturity_floor + Math.sqrt(Math.min(Math.max(ageForModel, 0), model.maturity_days) / model.maturity_days) * model.maturity_range;
+  // Maturity rises in a straight line with age: a protocol earns the full premium only after
+  // three years with no token, and every year of survival counts the same. The radar-4
+  // square-root curve is gone on purpose: it lifted young protocols so far that 72 rows
+  // moved five ranks or more, and the board scored worse for it.
+  const maturityMult = model.maturity_floor + (Math.min(Math.max(ageForModel, 0), model.maturity_days) / model.maturity_days) * model.maturity_range;
   const categoryMult = categoryMultiplier(protocol.category);
   const chainMult = chainMultiplier(protocol.chains);
   const base = protocol.tvl_usd * model.base_multiple;
