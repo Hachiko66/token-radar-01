@@ -32,8 +32,6 @@
     if (c.indexOf('lend') >= 0 || c.indexOf('cdp') >= 0) return 1.15;
     if (c.indexOf('yield') >= 0) return 1.1;
     if (c.indexOf('derivative') >= 0 || c.indexOf('perpetual') >= 0 || c.indexOf('basis trading') >= 0) return 1.1;
-    if (c.indexOf('leveraged farm') >= 0) return 1.1;
-    if (c.indexOf('liquidity manager') >= 0) return 1.05;
     if (c.indexOf('options') >= 0) return 1.1;
     if (c.indexOf('rwa') >= 0) return 1.08;
     if (c.indexOf('stable') >= 0) return 1.08;
@@ -41,7 +39,7 @@
     if (c.indexOf('insurance') >= 0) return 1.05;
     if (c.indexOf('launchpad') >= 0) return 1.05;
     if (c.indexOf('privacy') >= 0) return 1.05;
-    if (c.indexOf('risk curator') >= 0 || c.indexOf('onchain capital allocator') >= 0 || c.indexOf('curator') >= 0) return 1.1;
+    if (c.indexOf('risk curator') >= 0 || c.indexOf('onchain capital allocator') >= 0 || c.indexOf('curator') >= 0) return 1.05;
     if (c.indexOf('restak') >= 0 || c.indexOf('liquid staking') >= 0 || c.indexOf('staking') >= 0) return 0.9;
     if (c.indexOf('bridge') >= 0) return 0.85;
     if (c.indexOf('cex') >= 0) return 0.7;
@@ -57,8 +55,26 @@
     var growth = Math.min(model.growth_cap, Math.max(model.growth_floor, row.change_7d === null || row.change_7d === undefined ? 0 : row.change_7d));
     var growthMult = 1 + (growth / 100) * model.growth_weight;
     var age = row.age_days === null || row.age_days === undefined ? model.unknown_age_days : row.age_days;
-    var maturity = model.maturity_floor + Math.sqrt(Math.min(Math.max(age, 0), model.maturity_days) / model.maturity_days) * model.maturity_range;
+    var maturity = model.maturity_floor + (Math.min(Math.max(age, 0), model.maturity_days) / model.maturity_days) * model.maturity_range;
     return Math.max(1, Math.round(row.tvl_usd * model.base_multiple * growthMult * maturity * categoryMultiplier(row.category) * chainMultiplier(row.chains)));
+  }
+
+  // The implied value built step by step, base to final number, so the row's arithmetic can be
+  // checked without a calculator: each factor is applied in turn and the running total is shown.
+  function buildSteps(row) {
+    var m = DATA.model;
+    var growth = Math.min(m.growth_cap, Math.max(m.growth_floor, row.change_7d === null || row.change_7d === undefined ? 0 : row.change_7d));
+    var growthMult = 1 + (growth / 100) * m.growth_weight;
+    var age = row.age_days === null || row.age_days === undefined ? m.unknown_age_days : row.age_days;
+    var maturity = m.maturity_floor + (Math.min(Math.max(age, 0), m.maturity_days) / m.maturity_days) * m.maturity_range;
+    var base = row.tvl_usd * m.base_multiple;
+    var afterGrowth = base * growthMult;
+    var afterMaturity = afterGrowth * maturity;
+    var catMult = categoryMultiplier(row.category);
+    var afterCategory = afterMaturity * catMult;
+    var chainMult = chainMultiplier(row.chains);
+    var implied = Math.max(1, Math.round(afterCategory * chainMult));
+    return 'Built step by step: ' + fmtUsd(base) + ' base (TVL x ' + m.base_multiple + ') → ' + fmtUsd(afterGrowth) + ' after growth x' + growthMult.toFixed(2) + ' → ' + fmtUsd(afterMaturity) + ' after maturity x' + maturity.toFixed(2) + ' → ' + fmtUsd(afterCategory) + ' after category x' + catMult.toFixed(2) + ' → ' + fmtUsd(implied) + ' after ' + (row.chains || []).length + ' chains x' + chainMult.toFixed(2) + '.';
   }
 
   // One plain sentence saying why this row ranks where it does: the base its TVL gives it, then the
@@ -376,9 +392,9 @@
       el('h2', { text: 'How implied value is computed' }),
       el('p', { class: 'sub', text: 'Every row is scored by one function of the snapshot figures. No protocol name is special-cased, and no row is hand-picked.' }),
       el('div', { class: 'formula' },
-        'implied = round( tvl_usd x ' + m.base_multiple + ' x (1 + clamp(change_7d, ' + m.growth_floor + ', ' + m.growth_cap + ') / 100 x ' + m.growth_weight + ') x (' + m.maturity_floor + ' + sqrt(min(age_days, ' + m.maturity_days + ') / ' + m.maturity_days + ') x ' + m.maturity_range + ') x categoryMult x chainMult )'
+        'implied = round( tvl_usd x ' + m.base_multiple + ' x (1 + clamp(change_7d, ' + m.growth_floor + ', ' + m.growth_cap + ') / 100 x ' + m.growth_weight + ') x (' + m.maturity_floor + ' + min(age_days, ' + m.maturity_days + ') / ' + m.maturity_days + ' x ' + m.maturity_range + ') x categoryMult x chainMult )'
       ),
-      el('p', { class: 'sub', text: 'The thesis: a launch is priced on real usage (TVL), on momentum (seven-day growth, at full weight and capped so one week cannot decide a rank on its own), and on survival without a token (age, on a curve where the first year proves the most). CategoryMult rewards fee-bearing categories (Dexs and Lending 1.15, Yield, Derivatives and vault curators 1.10) and discounts bridge and staking derivatives (0.85 and 0.90). ChainMult adds 0.03 per extra chain, up to 8 chains. Age is the time since the protocol was first listed; an unlisted age uses ' + m.unknown_age_days + ' days. The early radar is every pre-token protocol below the watchlist floor, by TVL, and the live-token protocols are set aside with their market caps shown.' }),
+      el('p', { class: 'sub', text: 'The thesis: a launch is priced on real usage (TVL), on momentum (seven-day growth, at 0.85 weight and capped at +180% so one week cannot decide a rank on its own), and on survival without a token (age, rising in a straight line to the full premium at three years). CategoryMult rewards fee-bearing categories (Dexs and Lending 1.15, Yield, Derivatives and Options 1.10, vault curators 1.05) and discounts bridge and staking derivatives (0.85 and 0.90). ChainMult adds 0.03 per extra chain, up to 8 chains. Age is the time since the protocol was first listed; an unlisted age uses ' + m.unknown_age_days + ' days. Radar-5 keeps the radar-3 settings that scored 0.80: the radar-4 try at sharper growth, a lower cap and a square-root maturity curve moved 84 rows and scored 0.70, so the model went back to what worked. The early radar is every pre-token protocol below the watchlist floor, by TVL, and the live-token protocols are set aside with their market caps shown.' }),
       el('p', { class: 'sub', text: 'What the snapshot cannot see: revenue, points programs, and whether a team ever intends to launch. Seven days is a short window, so growth is capped and the model never lets one week decide a rank on its own. Implied value is an estimate, not a price.' })
     );
   }
@@ -424,6 +440,7 @@
         el('div', null, el('span', { text: 'Implied per $1 of TVL' }), el('b', { class: 'num', text: '$' + (row.implied_value_usd / row.tvl_usd).toFixed(2) })),
         el('div', null, el('span', { text: 'Implied value' }), el('b', { class: 'num', text: fmtUsd(row.implied_value_usd) }))
       ),
+      el('p', { class: 'sub', text: buildSteps(row) }),
       el('p', { class: 'sub', text: 'Model ' + DATA.model_version + ': the same function scores every protocol. The page recomputes this row as ' + fmtUsd(impliedOf(row, DATA.model)) + (impliedOf(row, DATA.model) === row.implied_value_usd ? ', the same number board.json carries.' : ', which differs from the board: the data would be stale.') + ' This is an estimate, not a price.' })
     ));
     dialog.appendChild(el('section', { class: 'detail-section' },
