@@ -1,13 +1,13 @@
-// Token Radar radar-5 — a Node 22 entry, standard library only.
+// Token Radar radar-6 — a Node 22 entry, standard library only.
 //
 // What this program does, in order:
 //  1. Reads the sealed DefiLlama snapshot (758 protocols, as of 2026-11-14).
-//  2. Scores every pre-token protocol with the radar-5 model in lib/model.ts:
-//     the radar-3 settings that scored 0.802, restored after the radar-4
-//     experiment (sharper growth, lower cap, square-root maturity) moved
-//     84 rows and scored 0.700. That model blends TVL, seven-day growth,
-//     age with no token, the protocol's category, and how many chains it
-//     runs on. No name is special.
+//  2. Scores every pre-token protocol with the radar-6 model in lib/model.ts:
+//     implied value = TVL x fitted multiple x token odds. The multiple is
+//     fitted on the traded protocols whose token plausibly prices off TVL,
+//     and the odds come from the peers' record; every term was tested
+//     held-out twice (leave-one-out and walk-forward) and kept only if it
+//     lowered the miss in both. No name is special.
 //  3. Writes the ranked board to board.json (226 rows: 40 watchlist + 186 early).
 //  4. Writes data.js for the static dashboard, copies dashboard/ and
 //     screenshots/ through, and finishes with dossier.json for the judge.
