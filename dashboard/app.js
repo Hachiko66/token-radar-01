@@ -32,6 +32,8 @@
     if (c.indexOf('lend') >= 0 || c.indexOf('cdp') >= 0) return 1.15;
     if (c.indexOf('yield') >= 0) return 1.1;
     if (c.indexOf('derivative') >= 0 || c.indexOf('perpetual') >= 0 || c.indexOf('basis trading') >= 0) return 1.1;
+    if (c.indexOf('leveraged farm') >= 0) return 1.1;
+    if (c.indexOf('liquidity manager') >= 0) return 1.05;
     if (c.indexOf('options') >= 0) return 1.1;
     if (c.indexOf('rwa') >= 0) return 1.08;
     if (c.indexOf('stable') >= 0) return 1.08;
@@ -39,7 +41,7 @@
     if (c.indexOf('insurance') >= 0) return 1.05;
     if (c.indexOf('launchpad') >= 0) return 1.05;
     if (c.indexOf('privacy') >= 0) return 1.05;
-    if (c.indexOf('risk curator') >= 0 || c.indexOf('onchain capital allocator') >= 0 || c.indexOf('curator') >= 0) return 1.05;
+    if (c.indexOf('risk curator') >= 0 || c.indexOf('onchain capital allocator') >= 0 || c.indexOf('curator') >= 0) return 1.1;
     if (c.indexOf('restak') >= 0 || c.indexOf('liquid staking') >= 0 || c.indexOf('staking') >= 0) return 0.9;
     if (c.indexOf('bridge') >= 0) return 0.85;
     if (c.indexOf('cex') >= 0) return 0.7;
@@ -55,8 +57,26 @@
     var growth = Math.min(model.growth_cap, Math.max(model.growth_floor, row.change_7d === null || row.change_7d === undefined ? 0 : row.change_7d));
     var growthMult = 1 + (growth / 100) * model.growth_weight;
     var age = row.age_days === null || row.age_days === undefined ? model.unknown_age_days : row.age_days;
-    var maturity = model.maturity_floor + (Math.min(Math.max(age, 0), model.maturity_days) / model.maturity_days) * model.maturity_range;
+    var maturity = model.maturity_floor + Math.sqrt(Math.min(Math.max(age, 0), model.maturity_days) / model.maturity_days) * model.maturity_range;
     return Math.max(1, Math.round(row.tvl_usd * model.base_multiple * growthMult * maturity * categoryMultiplier(row.category) * chainMultiplier(row.chains)));
+  }
+
+  // One plain sentence saying why this row ranks where it does: the base its TVL gives it, then the
+  // two multipliers that move it most. Computed from the row, never written by hand.
+  function reasonFor(row) {
+    var base = row.tvl_usd * DATA.model.base_multiple;
+    var parts = [];
+    var growth = row.change_7d === null || row.change_7d === undefined ? 0 : row.change_7d;
+    if (row.growth_multiplier >= 1.05) parts.push({ w: Math.abs(Math.log(row.growth_multiplier)), s: 'seven-day growth of ' + fmtPct(growth) + ' adds ' + Math.round((row.growth_multiplier - 1) * 100) + '%' });
+    else if (row.growth_multiplier <= 0.95) parts.push({ w: Math.abs(Math.log(row.growth_multiplier)), s: 'seven-day growth of ' + fmtPct(growth) + ' costs ' + Math.round((1 - row.growth_multiplier) * 100) + '%' });
+    if (row.maturity_multiplier < 0.85) parts.push({ w: Math.abs(Math.log(row.maturity_multiplier)), s: 'only ' + fmtAge(row.age_days) + ' with no token holds it back by ' + Math.round((1 - row.maturity_multiplier) * 100) + '%' });
+    else parts.push({ w: 0, s: fmtAge(row.age_days) + ' with no token earns the full maturity premium' });
+    if (row.category_multiplier > 1) parts.push({ w: Math.abs(Math.log(row.category_multiplier)), s: 'its category adds ' + Math.round((row.category_multiplier - 1) * 100) + '%' });
+    else if (row.category_multiplier < 1) parts.push({ w: Math.abs(Math.log(row.category_multiplier)), s: 'its category discounts it by ' + Math.round((1 - row.category_multiplier) * 100) + '%' });
+    if (row.chain_multiplier > 1) parts.push({ w: Math.abs(Math.log(row.chain_multiplier)), s: (row.chains || []).length + ' chains add ' + Math.round((row.chain_multiplier - 1) * 100) + '%' });
+    parts.sort(function (a, b) { return b.w - a.w; });
+    var drivers = parts.slice(0, 2).map(function (p) { return p.s; }).join('; ');
+    return 'TVL of ' + fmtUsd(row.tvl_usd) + ' is worth ' + fmtUsd(base) + ' at the model\u2019s ' + DATA.model.base_multiple + ' multiple, and ' + drivers + '.';
   }
 
   function el(tag, attrs) {
@@ -356,9 +376,10 @@
       el('h2', { text: 'How implied value is computed' }),
       el('p', { class: 'sub', text: 'Every row is scored by one function of the snapshot figures. No protocol name is special-cased, and no row is hand-picked.' }),
       el('div', { class: 'formula' },
-        'implied = round( tvl_usd x ' + m.base_multiple + ' x (1 + clamp(change_7d, ' + m.growth_floor + ', ' + m.growth_cap + ') / 100 x ' + m.growth_weight + ') x (' + m.maturity_floor + ' + min(age_days, ' + m.maturity_days + ') / ' + m.maturity_days + ' x ' + m.maturity_range + ') x categoryMult x chainMult )'
+        'implied = round( tvl_usd x ' + m.base_multiple + ' x (1 + clamp(change_7d, ' + m.growth_floor + ', ' + m.growth_cap + ') / 100 x ' + m.growth_weight + ') x (' + m.maturity_floor + ' + sqrt(min(age_days, ' + m.maturity_days + ') / ' + m.maturity_days + ') x ' + m.maturity_range + ') x categoryMult x chainMult )'
       ),
-      el('p', { class: 'sub', text: 'TVL and seven-day growth come from the snapshot. Age is the time since the protocol was first listed, the best record of how long it has run with no token; an unlisted age uses ' + m.unknown_age_days + ' days. CategoryMult rewards fee-bearing categories (Dexs and Lending 1.15, Yield and Derivatives 1.10) and discounts bridge and staking derivatives (0.85 and 0.90). ChainMult adds 0.03 per extra chain, up to 8 chains. The early radar is every pre-token protocol below the watchlist floor, by TVL, and the live-token protocols are set aside with their market caps shown.' })
+      el('p', { class: 'sub', text: 'The thesis: a launch is priced on real usage (TVL), on momentum (seven-day growth, at full weight and capped so one week cannot decide a rank on its own), and on survival without a token (age, on a curve where the first year proves the most). CategoryMult rewards fee-bearing categories (Dexs and Lending 1.15, Yield, Derivatives and vault curators 1.10) and discounts bridge and staking derivatives (0.85 and 0.90). ChainMult adds 0.03 per extra chain, up to 8 chains. Age is the time since the protocol was first listed; an unlisted age uses ' + m.unknown_age_days + ' days. The early radar is every pre-token protocol below the watchlist floor, by TVL, and the live-token protocols are set aside with their market caps shown.' }),
+      el('p', { class: 'sub', text: 'What the snapshot cannot see: revenue, points programs, and whether a team ever intends to launch. Seven days is a short window, so growth is capped and the model never lets one week decide a rank on its own. Implied value is an estimate, not a price.' })
     );
   }
 
@@ -400,9 +421,15 @@
         el('div', null, el('span', { text: 'Category multiplier' }), el('b', { class: 'num', text: String(row.category_multiplier) })),
         el('div', null, el('span', { text: 'Chain multiplier' }), el('b', { class: 'num', text: String(row.chain_multiplier) })),
         el('div', null, el('span', { text: 'Chains' }), el('b', { class: 'num', text: String((row.chains || []).length) })),
+        el('div', null, el('span', { text: 'Implied per $1 of TVL' }), el('b', { class: 'num', text: '$' + (row.implied_value_usd / row.tvl_usd).toFixed(2) })),
         el('div', null, el('span', { text: 'Implied value' }), el('b', { class: 'num', text: fmtUsd(row.implied_value_usd) }))
       ),
       el('p', { class: 'sub', text: 'Model ' + DATA.model_version + ': the same function scores every protocol. The page recomputes this row as ' + fmtUsd(impliedOf(row, DATA.model)) + (impliedOf(row, DATA.model) === row.implied_value_usd ? ', the same number board.json carries.' : ', which differs from the board: the data would be stale.') + ' This is an estimate, not a price.' })
+    ));
+    dialog.appendChild(el('section', { class: 'detail-section' },
+      el('h3', { text: 'Why this rank' }),
+      el('p', { class: 'sub', text: reasonFor(row) }),
+      el('p', { class: 'sub', text: 'That multiple is the model\u2019s whole judgement in one number: above 0.25 the protocol earns a premium on its TVL, below it a discount. The board is not TVL order.' })
     ));
     dialog.appendChild(el('section', { class: 'detail-section' },
       el('h3', { text: 'Farm plan' }),
@@ -439,7 +466,7 @@
     }).sort(function (a, b) { return b.total - a.total; }).slice(0, 6);
     return el('section', { class: 'panel model' },
       el('h2', { text: 'Where the implied value sits' }),
-      el('p', { class: 'sub', text: 'The six categories with the most implied value on this board. Risk Curators lead because the watchlist itself is heavy with them, not because any name was picked.' }),
+      el('p', { class: 'sub', text: 'The six categories with the most implied value on this board. ' + entries[0].category + ' leads with ' + entries[0].rows + ' rows and ' + entries[0].share + ' of the board\u2019s implied value. No name was picked: the same function scores every row.' }),
       el('div', { class: 'formula' }, entries.map(function (e) { return e.category + ': ' + e.rows + ' rows, ' + fmtUsd(e.total) + ' (' + e.share + ').'; }).join('  '))
     );
   }
