@@ -103,3 +103,39 @@ export function widestReach(board: BoardRow[], count: number): BoardRow[] {
     .sort((a, b) => b.chains.length - a.chains.length || b.implied_value_usd - a.implied_value_usd)
     .slice(0, count);
 }
+
+/** How many rows live on each chain, highest first. */
+export interface ChainShare {
+  chain: string;
+  rows: number;
+  totalImpliedUsd: number;
+}
+
+export function chainStats(board: BoardRow[]): ChainShare[] {
+  const grouped = new Map<string, { rows: number; total: number }>();
+  for (const row of board) {
+    for (const chain of row.chains) {
+      const entry = grouped.get(chain) ?? { rows: 0, total: 0 };
+      entry.rows += 1;
+      entry.total += row.implied_value_usd;
+      grouped.set(chain, entry);
+    }
+  }
+  return [...grouped.entries()]
+    .map(([chain, entry]) => ({ chain, rows: entry.rows, totalImpliedUsd: entry.total }))
+    .sort((a, b) => b.totalImpliedUsd - a.totalImpliedUsd);
+}
+
+/** A growth summary: how many rows grew, fell, or stayed flat in seven days. */
+export function growthSummary(board: BoardRow[]): { growing: number; falling: number; flat: number } {
+  let growing = 0;
+  let falling = 0;
+  let flat = 0;
+  for (const row of board) {
+    const change = row.change_7d ?? 0;
+    if (change > 0) growing += 1;
+    else if (change < 0) falling += 1;
+    else flat += 1;
+  }
+  return { growing, falling, flat };
+}
