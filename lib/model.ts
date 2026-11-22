@@ -324,35 +324,47 @@ function holdDaysFor(age: number | null): number {
   return 30;
 }
 
-/** The category's one action, in the words a farmer can follow. */
+/** The one qualifying position, written as a sentence a farmer can follow. */
 function actionFor(p: SnapshotProtocol, capital: number, chain: string): string {
   const c = (p.category ?? '').toLowerCase();
   const name = p.name;
-  if (c.includes('lend') || c.includes('cdp') || c.includes('collateral')) return `Supply $${capital} of USDC to ${name} on ${chain} and keep the position open.`;
-  if (c.includes('dex') || c.includes('yield') || c.includes('leveraged farm')) return `Provide $${capital} of liquidity to ${name}'s main pool on ${chain} and keep the position open.`;
-  if (c.includes('bridge')) return `Bridge $${capital} of USDC to ${chain} through ${name} and use the bridged funds in its app.`;
-  if (c.includes('staking') || c.includes('restak')) return `Stake $${capital} of the chain's staking asset through ${name} and keep the receipt.`;
-  if (c.includes('perpetual') || c.includes('derivative')) return `Deposit $${capital} of USDC as margin on ${name} and open one small hedge.`;
-  if (c.includes('prediction')) return `Fund $${capital} and place one market position on ${name}.`;
-  if (c.includes('curator') || c.includes('allocator')) return `Deposit $${capital} into a ${name} vault on ${chain} and keep the shares.`;
+  if (c.includes('lend') || c.includes('cdp') || c.includes('collateral')) return `Lend $${capital} in USDC on ${name} (${chain}) and leave the supply earning for the full hold.`;
+  if (c.includes('dex') || c.includes('yield') || c.includes('leveraged farm')) return `Add $${capital} of liquidity to the main ${name} pool on ${chain} and leave it in range.`;
+  if (c.includes('bridge')) return `Move $${capital} in USDC across ${name} to ${chain}, then put those funds to work in its app once.`;
+  if (c.includes('staking') || c.includes('restak')) return `Stake $${capital} of the native asset via ${name}, keep the receipt, and do not unstake early.`;
+  if (c.includes('perpetual') || c.includes('derivative')) return `Post $${capital} in USDC as margin on ${name} and open a single small hedged trade.`;
+  if (c.includes('prediction')) return `Fund ${name} with $${capital} and take one small market position.`;
+  if (c.includes('curator') || c.includes('allocator')) return `Put $${capital} into a ${name} vault on ${chain} and hold the vault shares.`;
   if (c.includes('stable')) return `Mint or deposit $${capital} of the stable asset through ${name} on ${chain}.`;
-  if (c.includes('rwa')) return `Mint $${capital} of the protocol's yield asset on ${chain} and hold it.`;
-  if (c.includes('insurance')) return `Buy $${capital} of cover from ${name} on ${chain} and keep the policy.`;
-  return `Deposit $${capital} of USDC into ${name} on ${chain} and keep the position open.`;
+  if (c.includes('rwa')) return `Mint $${capital} of the yield-bearing asset on ${name} (${chain}) and hold it.`;
+  if (c.includes('insurance')) return `Buy $${capital} of cover from ${name} on ${chain} and keep the policy active.`;
+  return `Deposit $${capital} in USDC into ${name} on ${chain} and keep the position open.`;
+}
+
+/** What to watch for this protocol, from its own category and growth. */
+export function riskNoteFor(p: SnapshotProtocol): string {
+  const c = (p.category ?? '').toLowerCase();
+  const growth = p.change_7d ?? 0;
+  if (c.includes('lend') || c.includes('cdp')) return 'Watch borrow rates and liquidation levels weekly; a sharp TVL fall means unwind first.';
+  if (c.includes('dex') || c.includes('yield')) return 'Watch pool range and impermanent loss; leave if the pool drifts out of range for two weeks.';
+  if (c.includes('bridge')) return 'Bridge only small amounts at a time and check the destination chain before each move.';
+  if (c.includes('rwa')) return 'Check the underlying asset and yield source monthly; RWA yield is only as good as its backing.';
+  if (growth < -10) return 'TVL fell more than 10% in seven days: size down and re-check before adding more.';
+  return 'Check TVL and the points page weekly; stop adding if TVL falls for two weeks in a row.';
 }
 
 /** The weekly qualifying action, specific to the protocol's category. */
 function weeklyActionFor(p: SnapshotProtocol): string {
   const c = (p.category ?? '').toLowerCase();
   const name = p.name;
-  if (c.includes('lend') || c.includes('cdp')) return `Each week, supply a little more, borrow a small amount against it, then repay it on ${name}.`;
-  if (c.includes('dex') || c.includes('yield')) return `Each week, swap once and add a little liquidity to ${name}'s main pool, then check the pool's range.`;
-  if (c.includes('bridge')) return `Each week, bridge a small amount through ${name} and use it once in the destination app.`;
-  if (c.includes('staking') || c.includes('restak')) return `Each week, check the staking receipt on ${name} and restake any rewards it shows.`;
-  if (c.includes('perpetual') || c.includes('derivative')) return `Each week, open and close one small hedged position on ${name} and record the funding paid.`;
-  if (c.includes('rwa')) return `Each week, check the yield accrual on ${name} and keep the receipt in your log.`;
-  if (c.includes('curator') || c.includes('allocator')) return `Each week, review the vault allocation on ${name} and leave the shares untouched unless the vault moves.`;
-  return `Each week, make one qualifying action on ${name}, such as a deposit, a swap or a vote.`;
+  if (c.includes('lend') || c.includes('cdp')) return `Weekly: add a little supply, borrow a small amount, then repay it on ${name}.`;
+  if (c.includes('dex') || c.includes('yield')) return `Weekly: swap once, top up liquidity in ${name}'s main pool, and check the range.`;
+  if (c.includes('bridge')) return `Weekly: bridge a small amount via ${name} and use it once where it lands.`;
+  if (c.includes('staking') || c.includes('restak')) return `Weekly: check the ${name} staking receipt and compound any rewards shown.`;
+  if (c.includes('perpetual') || c.includes('derivative')) return `Weekly: open and close one small hedged trade on ${name} and note the funding paid.`;
+  if (c.includes('rwa')) return `Weekly: check yield accrual on ${name} and file the receipt in your log.`;
+  if (c.includes('curator') || c.includes('allocator')) return `Weekly: review the ${name} vault allocation and leave shares alone unless the vault moves.`;
+  return `Weekly: do one qualifying action on ${name}, such as a deposit, a swap or a vote.`;
 }
 
 /**
