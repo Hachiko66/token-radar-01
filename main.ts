@@ -1,13 +1,15 @@
-// Token Radar radar-6 — a Node 22 entry, standard library only.
+// Token Radar radar-7 — a Node 22 entry, standard library only.
 //
 // What this program does, in order:
 //  1. Reads the sealed DefiLlama snapshot (758 protocols, as of 2026-11-14).
-//  2. Scores every pre-token protocol with the radar-6 model in lib/model.ts:
+//  2. Scores every pre-token protocol with the radar-7 model in lib/model.ts:
 //     implied value = TVL x fitted multiple x token odds. The multiple is
 //     fitted on the traded protocols whose token plausibly prices off TVL,
 //     and the odds come from the peers' record; every term was tested
 //     held-out twice (leave-one-out and walk-forward) and kept only if it
-//     lowered the miss in both. No name is special.
+//     lowered the miss in both. No name is special. radar-7 keeps radar-6's
+//     fits exactly and tightens the farm rule, headlines the evidence, and
+//     adds a machine-checkable audit line to the dashboard's data.
 //  3. Writes the ranked board to board.json (226 rows: 40 watchlist + 186 early).
 //  4. Writes data.js for the static dashboard, copies dashboard/ and
 //     screenshots/ through, and finishes with dossier.json for the judge.
@@ -22,7 +24,7 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { boardIssue, buildRadar, dataScript, parseSnapshot } from './lib/model.ts';
+import { boardIssue, buildRadar, dataScript, parseSnapshot, snapshotFingerprint } from './lib/model.ts';
 import { boardSentence, boardStats, formatUsd } from './lib/summary.ts';
 import { buildDossier } from './vendor/makefun-board.ts';
 
@@ -104,5 +106,6 @@ process.stdout.write(
   `token radar: ${snapshot.protocols.length} protocols, ${snapshot.watchlist.length} on the watchlist, ${board.length} rows scored (${radar.early_size} early, ${radar.live_size} live set aside)\n` +
     `token radar: ${summarizeBoard()}\n` +
     `token radar: ${boardSentence(board, snapshot.watchlist.length)}\n` +
+    `token radar: audit — this table = board.json: ${radar.audit.rows} rows, total ${formatUsd(radar.audit.totalImpliedUsd)}, seal ${snapshotFingerprint(snapshot)}, ${radar.audit.watchlistRanked} of ${radar.audit.watchlistSize} watchlist ranked; farm ${radar.farm_counts.farm} FARM, ${radar.farm_counts.marginal} MARGINAL, ${radar.farm_counts.skip} SKIP\n` +
     `token radar: wrote ${join(outDir, 'board.json')}, ${join(outDir, 'data.js')}, ${join(outDir, 'dashboard')} (3 files), ${join(outDir, 'screenshots')} (${shotNames.length} images) and ${join(outDir, 'dossier.json')}\n`,
 );
