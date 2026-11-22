@@ -1,4 +1,4 @@
-# Token Radar — radar-2
+# Token Radar — radar-3
 
 [![make.fun · token-radar-01](https://make.fun/badge/token-radar-01.svg)](https://make.fun/bounty/token-radar-01?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
 [![rank](https://make.fun/badge/token-radar-01/Hachiko66/token-radar-01/rank.svg)](https://make.fun/bounty/token-radar-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
@@ -10,22 +10,26 @@ It reads the sealed DefiLlama snapshot (758 protocols, as of 2026-11-14),
 scores every pre-token protocol, and hands in a static dashboard that
 ranks them by implied value and shows how to farm each one.
 
-## Model — radar-2
+## Model — radar-3
 
 ```
 implied = round(
   tvl_usd x 0.25
-  x (1 + clamp(change_7d, -60, 120) / 100 x 0.6)
-  x (0.6 + min(age_days, 1095) / 1095 x 0.4)
+  x (1 + clamp(change_7d, -50, 180) / 100 x 0.85)
+  x (0.5 + min(age_days, 1095) / 1095 x 0.5)
   x categoryMult x chainMult
 )
 ```
 
 - `categoryMult`: Dexs and Lending 1.15, Yield and Derivatives 1.10,
   RWA 1.08, Risk Curators 1.05, staking derivatives 0.90, Bridge 0.85.
-- `chainMult`: 1 + 0.025 per extra chain, up to 8 extra chains.
-- Age is days since first listing; unknown age uses 365 days.
+- `chainMult`: 1 + 0.03 per extra chain, up to 8 extra chains.
+- Age is days since first listing; unknown age uses 180 days.
 - No protocol name is special-cased. The same function scores every row.
+
+radar-3 sharpens radar-2 where the snapshot says the signal is: growth
+and maturity now spread the board wider, so a fast-growing, long-running
+protocol outranks a large flat one.
 
 The board covers all 40 watchlist protocols and adds 186 pre-token
 protocols below the $50M floor, by TVL — 226 rows in total. Live-token
@@ -43,11 +47,13 @@ protocols are set aside with their market caps, never mixed into the ranking.
 
 ## Farm plans
 
-Every row carries 6 steps, each with a cost and a time, derived from
-the protocol's own category, chains, TVL, and age — never from a list
-of names. Steps cover wallet setup, the qualifying position, weekly
-actions specific to the category, the hold period, safe claiming, and
-logging with a stop rule.
+Every row carries 7 steps, each with a cost and a time, derived from
+the protocol's own category, chains, TVL, age, and seven-day growth —
+never from a list of names. Steps cover wallet setup, the qualifying
+position sized to the protocol's TVL and growth, weekly actions
+specific to the category, the hold period, the risk to watch, safe
+claiming, and logging with a stop rule. Gas is priced for the
+protocol's own main chain.
 
 ## Run it
 
