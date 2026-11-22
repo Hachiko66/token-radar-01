@@ -1,8 +1,8 @@
-// Token Radar radar-3 — a Node 22 entry, standard library only.
+// Token Radar radar-4 — a Node 22 entry, standard library only.
 //
 // What this program does, in order:
 //  1. Reads the sealed DefiLlama snapshot (758 protocols, as of 2026-11-14).
-//  2. Scores every pre-token protocol with the radar-3 model in lib/model.ts.
+//  2. Scores every pre-token protocol with the radar-4 model in lib/model.ts.
 //     That model blends TVL, seven-day growth, age with no token, the
 //     protocol's category, and how many chains it runs on. No name is special.
 //  3. Writes the ranked board to board.json (226 rows: 40 watchlist + 186 early).
