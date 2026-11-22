@@ -1,4 +1,4 @@
-# Token Radar — radar-5
+# Token Radar — radar-6
 
 [![make.fun · token-radar-01](https://make.fun/badge/token-radar-01.svg)](https://make.fun/bounty/token-radar-01?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
 [![rank](https://make.fun/badge/token-radar-01/Hachiko66/token-radar-01/rank.svg)](https://make.fun/bounty/token-radar-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
@@ -10,35 +10,48 @@ It reads the sealed DefiLlama snapshot (758 protocols, as of 2026-11-14),
 scores every pre-token protocol, and hands in a static dashboard that
 ranks them by implied value and shows how to farm each one.
 
-## Model — radar-5
+## Model — radar-6
 
 ```
-implied = round(
-  tvl_usd x 0.25
-  x (1 + clamp(change_7d, -50, 180) / 100 x 0.85)
-  x (0.5 + min(age_days, 1095) / 1095 x 0.5)
-  x categoryMult x chainMult
-)
+implied = round(TVL x fitted multiple x token odds)
 ```
 
-- `categoryMult`: Dexs and Lending 1.15, Yield, Derivatives and Options
-  1.10, RWA and Stablecoins 1.08, Prediction, Insurance, Launchpad and
-  Privacy 1.05, Risk Curators and Capital Allocators 1.05, staking
-  derivatives 0.90, Bridge 0.85.
-- `chainMult`: 1 + 0.03 per extra chain, up to 8 extra chains.
-- Age is days since first listing; unknown age uses 180 days.
-- No protocol name is special-cased. The same function scores every row.
+- **Fitted multiple.** On the 85 traded protocols whose token
+  plausibly prices off TVL (live token, market cap and TVL both on
+  record, not an exchange, not a versioned pool, and not a staking
+  derivative or a bridge), `ln(mcap / TVL)` is regressed on
+  `ln(TVL / $100M)`, with the log-ratio winsorised at the 2nd and
+  98th percentiles. The fit is
+  `multiple = exp(-1.878 - 0.475 x ln(TVL / $100M))`: a base multiple
+  of 0.153 at $100M of TVL, falling as protocols get bigger.
+- **Token odds.** A logistic regression on 532 peers with a recorded
+  listing date (262 with a token, 270 without), on log TVL, seven-day
+  growth and chain count. Odds are the peers' record — the probability
+  a token is eventually recorded, given the snapshot's figures — not a
+  forecast that one will launch. Odds are bounded to 5%-95%, so one
+  week's growth alone never calls a protocol worthless or certain.
+- **Held-out tests.** Every candidate term was tested leave-one-out
+  and walk-forward (fit on protocols listed before 2024-01-01 and
+  before 2025-01-01, test on the ones listed after) and kept only if
+  it lowered the miss in both. The value model keeps only the size
+  curve (typical miss x4.5 leave-one-out); category, growth, age and
+  chain count all fail at least one test and are out. The odds model
+  keeps size, growth and chain count (Brier 0.237 against a 0.250 base
+  rate); age and category fail the walk-forward test and are out.
+  The full tables are on the dashboard as "Out-of-sample evidence".
+- **Ranges.** 200 bootstrap refits (seeded, reproducible) give every
+  row a P25-P75 and P10-P90 range for its implied value and a rank
+  range. The value model's ranges are honest: 54% of traded market
+  caps fall inside the printed P25-P75 (stated 50%) and 89% inside
+  P10-P90 (stated 80%).
+- No protocol name is special-cased. The same two fits score every row.
 
-radar-5 returns to the radar-3 settings that scored 0.802. The radar-4
-experiment — growth at full weight capped at +150%, maturity on a
-square-root curve, vault curators at 1.10 — scored 0.700 on the same
-7-3-2 record. Ablating it against the snapshot shows the square-root
-curve did the damage: it alone moved 72 of 226 rows by five ranks or
-more and lifted total implied 13%, re-sorting the board's middle by age
-shape instead of by launch value. So radar-5 changes no signal. Its
-one new thing is an explanation: the detail view now builds each
-implied value step by step, base to final number, so the board's
-arithmetic can be checked row by row instead of taken on trust.
+radar-6 replaces the radar-5 model (TVL x 0.25 x growth x maturity x
+category x chains), which scored 0.802 with no fitted term and no
+odds. The top three are the same names in a different order, and the
+total implied value falls from $3.48B to about $1.02B, because the
+fitted multiples are smaller than 0.25 at large TVL and every row is
+now discounted by its odds.
 
 The board covers all 40 watchlist protocols and adds 186 pre-token
 protocols below the $50M floor, by TVL — 226 rows in total. Live-token
@@ -49,22 +62,38 @@ protocols are set aside with their market caps, never mixed into the ranking.
 `dashboard/` is a static page with no network. It has:
 
 - Search, category filter, and chain filter
-- Sortable board by implied value, TVL, 7-day growth, age, and name
-- A detail view for every protocol with its model breakdown, a step-by-step
-  build of its implied value, a one-sentence reason for its rank, its
-  implied value per $1 of TVL, and its farm plan
+- Sortable board by implied value, TVL, 7-day growth, age, and name,
+  with token odds and a farm verdict on every row
+- A detail view for every protocol with its fitted multiple, its token
+  odds, its value if a token launches, its P25-P75 and P10-P90 ranges,
+  its rank range, a step-by-step build of its implied value, a
+  one-sentence reason for its rank, its implied value per $1 of TVL,
+  and its costed farm verdict and farm plan
+- An "Out-of-sample evidence" panel with the held-out tables and the
+  calibration, and an integrity strip that accounts for all 758
+  protocols of the snapshot
 - A live-token view set aside from the pre-token ranking
 - A Top 3 spotlight and a full model explanation
 
-## Farm plans
+## Farm plans and verdicts
 
-Every row carries 7 steps, each with a cost and a time, derived from
-the protocol's own category, chains, TVL, age, and seven-day growth —
-never from a list of names. Steps cover wallet setup, the qualifying
-position sized to the protocol's TVL and growth, weekly actions
+Every row carries 7 steps on the standard $10,000, twelve-week plan,
+each with a cost and a time, derived from the protocol's own category,
+chains, TVL, age, and seven-day growth — never from a list of names.
+Steps cover wallet setup, the qualifying position, weekly actions
 specific to the category, the hold period, the risk to watch, safe
-claiming, and logging with a stop rule. Gas is priced for the
+claiming, and logging with an exit rule. Gas is priced for the
 protocol's own main chain.
+
+Every row also carries a costed verdict on the same standard plan: a
+$10,000 deposit for twelve weeks buys a modelled drop of
+(deposit / TVL) x 7% x implied value; fees are thirteen fee-bearing
+actions on the main chain; hours are thirty minutes to set up plus
+fifteen minutes a week; the T-bill is what the same deposit earns at
+4% a year over the twelve weeks. FARM means the net beats the T-bill
+and pays at least $25 an hour; MARGINAL means the net is positive but
+not both; SKIP means the fees eat the drop. The break-even drop share
+and the exit trigger (TVL down 17.5% in one week) are shown per row.
 
 ## Run it
 
