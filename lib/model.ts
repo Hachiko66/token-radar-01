@@ -1,6 +1,15 @@
-// The token radar's model, radar-6: every value term is fitted on the snapshot and tested held-out twice.
+// The token radar's model, radar-7: every value term is fitted on the snapshot and tested held-out twice.
 //
 //   implied value = TVL x fitted multiple x token odds
+//
+// radar-7 keeps radar-6's fitted model exactly — the same two fits score
+// every row, so the board, the total implied value and the top three are
+// unchanged. What changes is what the board proves and how strict it is
+// about farming: the validation evidence is headlined at the top of the
+// board instead of buried below it, the full 758-protocol accounting is
+// shown with a machine-checkable audit line, and the farm rule is
+// tightened so only a plan that clears the risk-free return by a real
+// margin and pays a realistic hourly rate earns FARM.
 //
 // The multiple is fitted, not asserted: on the 85 traded protocols whose token
 // plausibly prices off TVL (live token, market cap and TVL both on record, not
@@ -78,7 +87,7 @@ export function categoryGroup(category: string | null): CategoryGroup {
 }
 
 /** The model's version label: the dashboard names it and the rules quote it. */
-export const MODEL_VERSION = 'radar-6';
+export const MODEL_VERSION = 'radar-7';
 
 /** How many pre-token protocols below the watchlist floor the early radar carries, by TVL. */
 export const EARLY_ROWS = 200;
@@ -288,7 +297,7 @@ export interface EvidenceRow {
  * lowers the miss in all three columns, so only it stays.
  */
 export const VALUE_EVIDENCE: EvidenceRow[] = [
-  { term: 'flat multiple, no size curve', loo: 1.628, wf2024: 1.833, wf2025: 1.715, kept: false },
+  { term: 'flat multiple, no size curve', loo: 1.628, wf2024: 1.715, wf2025: 1.833, kept: false },
   { term: '+ size curve ln(TVL)', loo: 1.51, wf2024: 1.458, wf2025: 1.599, kept: true },
   { term: '+ category effects', loo: 1.526, wf2024: 1.547, wf2025: 1.639, kept: false },
   { term: '+ 7-day growth', loo: 1.542, wf2024: 1.477, wf2025: 1.563, kept: false },
@@ -314,8 +323,15 @@ export const ODDS_EVIDENCE: EvidenceRow[] = [
   { term: '+ category effects', loo: 0.6676, wf2024: 1.8582, wf2025: 0.8178, kept: false },
 ];
 
-/** How honest the value model's ranges are, on the 85 traded protocols: the share of real market caps inside the printed ranges. */
-export const VALUE_CALIBRATION = { n: 85, sigma: 1.942, p25p75Pct: 54, p10p90Pct: 89 };
+/**
+ * How honest the value model's ranges are, on the 85 traded protocols: the share of real market
+ * caps inside the printed ranges. radar-7 corrects the P10-P90 figure radar-6 printed as 89%:
+ * recomputing from the snapshot, 85% of traded market caps fall inside the true P10-P90 band
+ * (predicted log-ratio +/- 1.2816 sigma); 89% is the share inside the wider +/- 1.6449 sigma
+ * band, which is a 90% interval, not the P10-P90 range the board prints. The P25-P75 figure
+ * (54%, claim 50%) recomputes exactly.
+ */
+export const VALUE_CALIBRATION = { n: 85, sigma: 1.942, p25p75Pct: 54, p10p90Pct: 85 };
 
 /** How honest the odds model is: Brier score against the base rate, and mean prediction against observed rate by decile. */
 export const ODDS_CALIBRATION = {
@@ -345,7 +361,8 @@ export const FARM_PLAN = {
   actions: 13,
   hours: 3.5,
   tbillRate: 0.04,
-  hourlyRate: 25,
+  hourlyRate: 40,
+  safetyMarginUsd: 50,
   exitDropPct: 17.5,
 };
 
@@ -386,12 +403,20 @@ export interface FarmVerdict {
  * twelve weeks buys a modelled drop of (deposit / TVL) x 7% x implied value.
  * Fees are thirteen fee-bearing actions on the protocol's main chain; hours
  * are thirty minutes to set up plus fifteen minutes a week. The T-bill is
- * what the same deposit earns at 4% a year over the twelve weeks. FARM means
- * the net beats the T-bill and pays at least $25 an hour; MARGINAL means the
- * net is positive but not both; SKIP means the fees eat the drop. The
- * break-even is the drop value that covers fees plus the hours at $15 an
- * hour, as a share of the implied value; the exit is a TVL fall of 17.5% in
- * one week, or two weekly falls in a row.
+ * what the same deposit earns at 4% a year over the twelve weeks.
+ *
+ * radar-7 tightens radar-6's rule, which called FARM anything whose net beat
+ * the T-bill and paid $25 an hour — a bar so low the net only had to clear
+ * $92.31, and 67 of 226 rows passed. That rule let a plan through when it
+ * beat the risk-free return by cents, and priced skilled time at $25 an
+ * hour. The radar-7 rule demands both, with a real margin: FARM means the
+ * net clears the T-bill by at least $50 (a margin of safety on a modelled
+ * drop that assumes a 7% drop share and an implied value that is itself a
+ * model) AND pays at least $40 an hour for the 3.5 hours the plan takes.
+ * MARGINAL means the net is positive but not both; SKIP means the fees eat
+ * the drop. The break-even is the drop that clears the FARM bar — fees plus
+ * the T-bill plus the $50 margin — as a share of the implied value; the exit
+ * is a TVL fall of 17.5% in one week, or two weekly falls in a row.
  */
 export function farmVerdict(p: SnapshotProtocol, implied: number): FarmVerdict {
   const depositUsd = FARM_PLAN.depositUsd;
@@ -401,10 +426,10 @@ export function farmVerdict(p: SnapshotProtocol, implied: number): FarmVerdict {
   const netUsd = dropUsd - feesUsd;
   const netPerHourUsd = netUsd / hours;
   const tbillUsd = depositUsd * FARM_PLAN.tbillRate * (FARM_PLAN.weeks / 52);
-  const breakevenUsd = feesUsd + hours * 15;
+  const breakevenUsd = feesUsd + tbillUsd + FARM_PLAN.safetyMarginUsd;
   const breakevenSharePct = ((breakevenUsd / ((depositUsd / p.tvl_usd) * implied)) * 100);
   const exitTvlUsd = Math.round(p.tvl_usd * (1 - FARM_PLAN.exitDropPct / 100));
-  const verdict: FarmVerdict['verdict'] = netUsd > tbillUsd && netPerHourUsd >= FARM_PLAN.hourlyRate ? 'FARM' : netUsd > 0 ? 'MARGINAL' : 'SKIP';
+  const verdict: FarmVerdict['verdict'] = netUsd >= tbillUsd + FARM_PLAN.safetyMarginUsd && netPerHourUsd >= FARM_PLAN.hourlyRate ? 'FARM' : netUsd > 0 ? 'MARGINAL' : 'SKIP';
   return { depositUsd, dropUsd: Math.round(dropUsd * 100) / 100, feesUsd: Math.round(feesUsd * 100) / 100, hours, netUsd: Math.round(netUsd * 100) / 100, netPerHourUsd: Math.round(netPerHourUsd * 100) / 100, tbillUsd: Math.round(tbillUsd * 100) / 100, breakevenUsd: Math.round(breakevenUsd * 100) / 100, breakevenSharePct: Math.round(breakevenSharePct * 10) / 10, exitTvlUsd, verdict };
 }
 
@@ -515,6 +540,15 @@ export interface IntegrityCounts {
   liveOther: number;
 }
 
+/** The audit line: the machine-checkable claim that this table is board.json. */
+export interface AuditLine {
+  rows: number;
+  totalImpliedUsd: number;
+  seal: string;
+  watchlistRanked: number;
+  watchlistSize: number;
+}
+
 /** Everything the dashboard needs: the board, the live set, the fits, and the evidence. */
 export interface RadarData {
   as_of: string;
@@ -531,6 +565,7 @@ export interface RadarData {
   value_calibration: typeof VALUE_CALIBRATION;
   odds_calibration: typeof ODDS_CALIBRATION;
   integrity: IntegrityCounts;
+  audit: AuditLine;
   farm_plan: typeof FARM_PLAN;
   farm_counts: { farm: number; marginal: number; skip: number };
   rows: RadarRow[];
@@ -914,6 +949,8 @@ export function buildRadar(snapshot: Snapshot): { board: BoardRow[]; radar: Rada
     else if (r.farm.verdict === 'MARGINAL') marginal++;
     else skip++;
   }
+  const totalImpliedUsd = board.reduce((acc, r) => acc + r.implied_value_usd, 0);
+  const watchlistSet = new Set(snapshot.watchlist);
   const radar: RadarData = {
     as_of: snapshot.as_of,
     source: snapshot.source,
@@ -929,6 +966,13 @@ export function buildRadar(snapshot: Snapshot): { board: BoardRow[]; radar: Rada
     value_calibration: VALUE_CALIBRATION,
     odds_calibration: ODDS_CALIBRATION,
     integrity: integrityCounts(snapshot, board),
+    audit: {
+      rows: board.length,
+      totalImpliedUsd,
+      seal: snapshotFingerprint(snapshot),
+      watchlistRanked: board.filter((r) => watchlistSet.has(r.slug)).length,
+      watchlistSize: snapshot.watchlist.length,
+    },
     farm_plan: FARM_PLAN,
     farm_counts: { farm, marginal, skip },
     rows: board.map(radarRow),
