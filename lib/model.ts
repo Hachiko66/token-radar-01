@@ -9,13 +9,18 @@
 // Implied value follows only from the snapshot's own figures:
 //
 //   base       = tvl_usd x BASE_MULTIPLE
-//   growth     = clamp(change_7d, -60, 120) per cent
+//   growth     = clamp(change_7d, -50, 180) per cent
 //   growthMult = 1 + (growth / 100) x GROWTH_WEIGHT
-//   maturity   = 0.6 + min(age_days, 1095) / 1095 x 0.4   (age_days unknown: 365)
+//   maturity   = 0.5 + min(age_days, 1095) / 1095 x 0.5   (age_days unknown: 180)
 //   category   = category multiplier from the protocol's own category (fee-bearing
 //                categories score higher, bridge and staking derivatives lower)
-//   chainsMult = 1 + 0.025 x min(chains - 1, 8)  (more chains, wider distribution)
+//   chainsMult = 1 + 0.03 x min(chains - 1, 8)  (more chains, wider distribution)
 //   implied    = max(1, round(base x growthMult x maturity x category x chainsMult))
+//
+// radar-3 sharpens radar-2 where the snapshot says the signal is: growth and
+// maturity now spread the board wider (growth weight 0.85, maturity 0.5 to 1.0,
+// unknown age 180 days), so a fast-growing, long-running protocol outranks a
+// large flat one, and the ranking is no longer close to TVL order alone.
 //
 // The constants are stated in the dashboard. No protocol name is ever special-cased:
 // the same function scores every row, using only category, chains, TVL, growth and age.
@@ -57,13 +62,13 @@ export interface ModelConstants {
 
 export const MODEL: ModelConstants = {
   base_multiple: 0.25,
-  growth_weight: 0.6,
-  growth_floor: -60,
-  growth_cap: 120,
-  maturity_floor: 0.6,
-  maturity_range: 0.4,
+  growth_weight: 0.85,
+  growth_floor: -50,
+  growth_cap: 180,
+  maturity_floor: 0.5,
+  maturity_range: 0.5,
   maturity_days: 1095,
-  unknown_age_days: 365,
+  unknown_age_days: 180,
 };
 
 /** Category multiplier: fee-bearing categories have a clearer path to a valuable token. */
@@ -73,8 +78,13 @@ export function categoryMultiplier(category: string | null): number {
   if (c.includes('lend') || c.includes('cdp')) return 1.15;
   if (c.includes('yield')) return 1.1;
   if (c.includes('derivative') || c.includes('perpetual') || c.includes('basis trading')) return 1.1;
+  if (c.includes('options')) return 1.1;
   if (c.includes('rwa')) return 1.08;
   if (c.includes('stable')) return 1.08;
+  if (c.includes('prediction')) return 1.05;
+  if (c.includes('insurance')) return 1.05;
+  if (c.includes('launchpad')) return 1.05;
+  if (c.includes('privacy')) return 1.05;
   if (c.includes('risk curator') || c.includes('onchain capital allocator') || c.includes('curator')) return 1.05;
   if (c.includes('restak') || c.includes('liquid staking') || c.includes('staking')) return 0.9;
   if (c.includes('bridge')) return 0.85;
@@ -85,11 +95,11 @@ export function categoryMultiplier(category: string | null): number {
 /** Chain multiplier: each extra chain widens distribution, capped at 8 extra chains. */
 export function chainMultiplier(chains: string[]): number {
   const extra = Math.max(0, Math.min(8, chains.length - 1));
-  return 1 + extra * 0.025;
+  return 1 + extra * 0.03;
 }
 
 /** The model's version label: the dashboard names it and the rules quote it. */
-export const MODEL_VERSION = 'radar-2';
+export const MODEL_VERSION = 'radar-3';
 
 /** How many pre-token protocols below the watchlist floor the early radar carries, by TVL. */
 export const EARLY_ROWS = 200;
@@ -367,9 +377,21 @@ function weeklyActionFor(p: SnapshotProtocol): string {
   return `Weekly: do one qualifying action on ${name}, such as a deposit, a swap or a vote.`;
 }
 
+/** What one transaction costs on the protocol's main chain, as a gas estimate. */
+export function gasFor(chain: string): string {
+  const c = chain.toLowerCase();
+  if (c.includes('ethereum')) return 'about $12 of gas';
+  if (c.includes('solana')) return 'about $0.05 of gas';
+  if (c.includes('arbitrum') || c.includes('optimism') || c.includes('base') || c.includes('zksync') || c.includes('linea')) return 'about $1 of gas';
+  if (c.includes('bsc') || c.includes('bnb')) return 'about $0.30 of gas';
+  if (c.includes('polygon')) return 'about $0.10 of gas';
+  if (c.includes('avalanche')) return 'about $0.50 of gas';
+  return 'about $3 of gas';
+}
+
 /**
- * A protocol's farm plan: six steps, each an action with a cost and a time. The plan is derived from
- * the protocol's own record (category, chains, TVL, age), never from a hand-written list of names.
+ * A protocol's farm plan: seven steps, each an action with a cost and a time. The plan is derived from
+ * the protocol's own record (category, chains, TVL, age, seven-day growth), never from a hand-written list of names.
  */
 export function farmSteps(p: SnapshotProtocol, age: number | null): FarmStep[] {
   const chain = chainOf(p);
@@ -377,6 +399,9 @@ export function farmSteps(p: SnapshotProtocol, age: number | null): FarmStep[] {
   const hold = holdDaysFor(age);
   const action = actionFor(p, capital, chain);
   const weekly = weeklyActionFor(p);
+  const gas = gasFor(chain);
+  const growth = p.change_7d === null ? 'no seven-day change on record' : `${p.change_7d >= 0 ? '+' : ''}${p.change_7d.toFixed(1)}% in seven days`;
+  const tvl = p.tvl_usd >= 1_000_000_000 ? `$${(p.tvl_usd / 1_000_000_000).toFixed(2)}B` : `$${Math.round(p.tvl_usd / 1_000_000)}M`;
   return [
     {
       text: `Use a fresh wallet that holds only the funds you plan to farm, and keep its seed phrase offline.`,
@@ -384,19 +409,24 @@ export function farmSteps(p: SnapshotProtocol, age: number | null): FarmStep[] {
       time: '5 minutes',
     },
     {
-      text: action,
-      cost: `$${capital} of capital and about $${capital >= 150 ? 8 : 4} of gas`,
+      text: `${action} This protocol holds ${tvl} of TVL and moved ${growth}, so the position is sized to its scale, not to a guess.`,
+      cost: `$${capital} of capital and ${gas}`,
       time: '15 minutes to set up',
     },
     {
       text: weekly,
-      cost: 'about $2 of gas a week',
+      cost: `${gas} a week`,
       time: '10 minutes a week',
     },
     {
       text: `Hold the position for at least ${hold} days so the activity is counted in more than one snapshot, and check the ${chain} gas price before each action.`,
       cost: `the $${capital} stays in the position`,
       time: `${hold} days`,
+    },
+    {
+      text: riskNoteFor(p),
+      cost: 'nothing to check',
+      time: '5 minutes to check',
     },
     {
       text: `Before you withdraw, open the protocol's own points or rewards page and claim only from the link it publishes, never from a link in a message.`,
