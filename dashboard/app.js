@@ -32,8 +32,13 @@
     if (c.indexOf('lend') >= 0 || c.indexOf('cdp') >= 0) return 1.15;
     if (c.indexOf('yield') >= 0) return 1.1;
     if (c.indexOf('derivative') >= 0 || c.indexOf('perpetual') >= 0 || c.indexOf('basis trading') >= 0) return 1.1;
+    if (c.indexOf('options') >= 0) return 1.1;
     if (c.indexOf('rwa') >= 0) return 1.08;
     if (c.indexOf('stable') >= 0) return 1.08;
+    if (c.indexOf('prediction') >= 0) return 1.05;
+    if (c.indexOf('insurance') >= 0) return 1.05;
+    if (c.indexOf('launchpad') >= 0) return 1.05;
+    if (c.indexOf('privacy') >= 0) return 1.05;
     if (c.indexOf('risk curator') >= 0 || c.indexOf('onchain capital allocator') >= 0 || c.indexOf('curator') >= 0) return 1.05;
     if (c.indexOf('restak') >= 0 || c.indexOf('liquid staking') >= 0 || c.indexOf('staking') >= 0) return 0.9;
     if (c.indexOf('bridge') >= 0) return 0.85;
@@ -42,7 +47,7 @@
   }
   function chainMultiplier(chains) {
     var n = chains && chains.length ? chains.length : 1;
-    return 1 + Math.max(0, Math.min(8, n - 1)) * 0.025;
+    return 1 + Math.max(0, Math.min(8, n - 1)) * 0.03;
   }
   // The model in one function: the page recomputes a row from the snapshot figures and checks the
   // number board.json carries, so the page's code and the board's data are visibly the same arithmetic.
@@ -133,15 +138,29 @@
     if (c.indexOf('curator') >= 0 || c.indexOf('allocator') >= 0) return 'Weekly: review the ' + name + ' vault allocation and leave shares alone unless the vault moves.';
     return 'Weekly: do one qualifying action on ' + name + ', such as a deposit, a swap or a vote.';
   }
+  function gasFor(chain) {
+    var c = (chain || '').toLowerCase();
+    if (c.indexOf('ethereum') >= 0) return 'about $12 of gas';
+    if (c.indexOf('solana') >= 0) return 'about $0.05 of gas';
+    if (c.indexOf('arbitrum') >= 0 || c.indexOf('optimism') >= 0 || c.indexOf('base') >= 0 || c.indexOf('zksync') >= 0 || c.indexOf('linea') >= 0) return 'about $1 of gas';
+    if (c.indexOf('bsc') >= 0 || c.indexOf('bnb') >= 0) return 'about $0.30 of gas';
+    if (c.indexOf('polygon') >= 0) return 'about $0.10 of gas';
+    if (c.indexOf('avalanche') >= 0) return 'about $0.50 of gas';
+    return 'about $3 of gas';
+  }
   function farmSteps(p) {
     var chain = chainOf(p);
     var capital = capitalFor(p);
     var hold = holdDaysFor(p.age_days);
+    var gas = gasFor(chain);
+    var growth = p.change_7d === null || p.change_7d === undefined ? 'no seven-day change on record' : (p.change_7d >= 0 ? '+' : '') + p.change_7d.toFixed(1) + '% in seven days';
+    var tvl = p.tvl_usd >= 1e9 ? '$' + (p.tvl_usd / 1e9).toFixed(2) + 'B' : '$' + Math.round(p.tvl_usd / 1e6) + 'M';
     return [
       { text: 'Use a fresh wallet that holds only the funds you plan to farm, and keep its seed phrase offline.', cost: 'under $3 of gas for the first transaction', time: '5 minutes' },
-      { text: actionFor(p, capital, chain), cost: '$' + capital + ' of capital and about $' + (capital >= 150 ? 8 : 4) + ' of gas', time: '15 minutes to set up' },
-      { text: weeklyActionFor(p), cost: 'about $2 of gas a week', time: '10 minutes a week' },
+      { text: actionFor(p, capital, chain) + ' This protocol holds ' + tvl + ' of TVL and moved ' + growth + ', so the position is sized to its scale, not to a guess.', cost: '$' + capital + ' of capital and ' + gas, time: '15 minutes to set up' },
+      { text: weeklyActionFor(p), cost: gas + ' a week', time: '10 minutes a week' },
       { text: 'Hold the position for at least ' + hold + ' days so the activity is counted in more than one snapshot, and check the ' + chain + ' gas price before each action.', cost: 'the $' + capital + ' stays in the position', time: hold + ' days' },
+      { text: riskNoteFor(p), cost: 'nothing to check', time: '5 minutes to check' },
       { text: "Before you withdraw, open the protocol's own points or rewards page and claim only from the link it publishes, never from a link in a message.", cost: 'no fee to check, and never pay to claim', time: '10 minutes' },
       { text: 'Write the wallet, the dates and every transaction in a farm log so you can repeat the position or unwind it, and set a stop date if TVL falls for two weeks in a row.', cost: 'nothing but the log', time: '5 minutes' }
     ].map(stepText);
@@ -339,7 +358,7 @@
       el('div', { class: 'formula' },
         'implied = round( tvl_usd x ' + m.base_multiple + ' x (1 + clamp(change_7d, ' + m.growth_floor + ', ' + m.growth_cap + ') / 100 x ' + m.growth_weight + ') x (' + m.maturity_floor + ' + min(age_days, ' + m.maturity_days + ') / ' + m.maturity_days + ' x ' + m.maturity_range + ') x categoryMult x chainMult )'
       ),
-      el('p', { class: 'sub', text: 'TVL and seven-day growth come from the snapshot. Age is the time since the protocol was first listed, the best record of how long it has run with no token; an unlisted age uses ' + m.unknown_age_days + ' days. CategoryMult rewards fee-bearing categories (Dexs and Lending 1.15, Yield and Derivatives 1.10) and discounts bridge and staking derivatives (0.85 and 0.90). ChainMult adds 0.025 per extra chain, up to 8 chains. The early radar is every pre-token protocol below the watchlist floor, by TVL, and the live-token protocols are set aside with their market caps shown.' })
+      el('p', { class: 'sub', text: 'TVL and seven-day growth come from the snapshot. Age is the time since the protocol was first listed, the best record of how long it has run with no token; an unlisted age uses ' + m.unknown_age_days + ' days. CategoryMult rewards fee-bearing categories (Dexs and Lending 1.15, Yield and Derivatives 1.10) and discounts bridge and staking derivatives (0.85 and 0.90). ChainMult adds 0.03 per extra chain, up to 8 chains. The early radar is every pre-token protocol below the watchlist floor, by TVL, and the live-token protocols are set aside with their market caps shown.' })
     );
   }
 
