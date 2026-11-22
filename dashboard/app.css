@@ -137,3 +137,17 @@ tbody tr[data-selected="true"] { background: color-mix(in srgb, var(--accent) 8%
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; }
 }
+
+/* Radar-2 additions: spotlight cards, breakdown and export. */
+.spotlight-list { display: grid; gap: var(--step-2); margin-top: var(--step-3); }
+.spotlight-row { display: flex; align-items: baseline; justify-content: space-between; gap: var(--step-3); padding: var(--step-2) 0; border-top: 1px solid var(--border); }
+.spotlight-row:first-child { border-top: 0; }
+.spotlight-row b { font-weight: 600; }
+.spotlight-row .num { font-family: var(--font-num); font-size: 13px; }
+.breakdown-grid { display: grid; gap: var(--step-2); margin-top: var(--step-3); }
+.breakdown-row { display: flex; align-items: center; gap: var(--step-3); font-size: 13px; }
+.breakdown-row .label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.breakdown-row .num { font-family: var(--font-num); white-space: nowrap; }
+.export-wrap { display: flex; justify-content: flex-end; padding: var(--step-3) 0 0; }
+.export-wrap .button { border-color: var(--accent); color: var(--accent); }
+.export-wrap .button:hover { background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }

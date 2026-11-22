@@ -391,6 +391,39 @@
     }
   }
 
+  function breakdownPanel() {
+    var byCat = {};
+    DATA.rows.forEach(function (r) {
+      var key = r.category || 'Other';
+      if (!byCat[key]) byCat[key] = { rows: 0, total: 0 };
+      byCat[key].rows += 1;
+      byCat[key].total += r.implied_value_usd;
+    });
+    var total = DATA.rows.reduce(function (acc, r) { return acc + r.implied_value_usd; }, 0);
+    var entries = Object.keys(byCat).map(function (k) {
+      return { category: k, rows: byCat[k].rows, total: byCat[k].total, share: total > 0 ? (byCat[k].total / total * 100).toFixed(1) + '%' : '0%' };
+    }).sort(function (a, b) { return b.total - a.total; }).slice(0, 6);
+    return el('section', { class: 'panel model' },
+      el('h2', { text: 'Where the implied value sits' }),
+      el('p', { class: 'sub', text: 'The six categories with the most implied value on this board. Risk Curators lead because the watchlist itself is heavy with them, not because any name was picked.' }),
+      el('div', { class: 'formula' }, entries.map(function (e) { return e.category + ': ' + e.rows + ' rows, ' + fmtUsd(e.total) + ' (' + e.share + ').'; }).join('  '))
+    );
+  }
+
+  function downloadCsv() {
+    var lines = ['rank,name,category,chains,tvl_usd,change_7d,age_days,implied_value_usd'];
+    rows().forEach(function (r) {
+      lines.push([r.rank, '"' + r.name.replace(/"/g, '""') + '"', '"' + (r.category || '') + '"', '"' + (r.chains || []).join(';') + '"', r.tvl_usd, r.change_7d === null ? '' : r.change_7d, r.age_days === null ? '' : r.age_days, r.implied_value_usd].join(','));
+    });
+    var blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'token-radar-board.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   function render() {
     app.textContent = '';
     var shell = el('div', { class: 'shell' });
@@ -398,7 +431,13 @@
     shell.appendChild(lede());
     if (state.tab === 'pre-token') shell.appendChild(spotlight());
     shell.appendChild(controls());
+    if (state.tab === 'pre-token') {
+      var exportBtn = el('button', { class: 'button', type: 'button', text: 'Download these rows as CSV', onclick: downloadCsv });
+      var exportWrap = el('div', { class: 'controls' }, exportBtn);
+      shell.appendChild(exportWrap);
+    }
     shell.appendChild(state.tab === 'pre-token' ? boardTable() : liveTable());
+    if (state.tab === 'pre-token') shell.appendChild(breakdownPanel());
     if (state.tab === 'pre-token') shell.appendChild(modelPanel());
     app.appendChild(shell);
     app.setAttribute('aria-busy', 'false');

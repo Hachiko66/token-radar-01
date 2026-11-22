@@ -458,6 +458,73 @@ export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): {
   return { board, radar };
 }
 
+/** A one-line summary of a board, for the program's own log and the dashboard's lede. */
+export interface BoardSummary {
+  rows: number;
+  watchlist: number;
+  early: number;
+  totalImpliedUsd: number;
+  medianImpliedUsd: number;
+  topCategory: string | null;
+  topCategoryImpliedUsd: number;
+}
+
+export function summarizeBoard(board: BoardRow[], watchlistSize: number): BoardSummary {
+  const sorted = [...board].sort((a, b) => b.implied_value_usd - a.implied_value_usd);
+  const total = sorted.reduce((acc, row) => acc + row.implied_value_usd, 0);
+  const middle = sorted[Math.floor(sorted.length / 2)];
+  const byCategory = new Map<string, number>();
+  for (const row of sorted) {
+    const key = row.category ?? 'Other';
+    byCategory.set(key, (byCategory.get(key) ?? 0) + row.implied_value_usd);
+  }
+  let topCategory: string | null = null;
+  let topValue = 0;
+  for (const [name, value] of byCategory) {
+    if (value > topValue) {
+      topCategory = name;
+      topValue = value;
+    }
+  }
+  return {
+    rows: board.length,
+    watchlist: watchlistSize,
+    early: board.length - watchlistSize,
+    totalImpliedUsd: total,
+    medianImpliedUsd: middle ? middle.implied_value_usd : 0,
+    topCategory,
+    topCategoryImpliedUsd: topValue,
+  };
+}
+
+/** Implied value by category, highest first, for the dashboard's breakdown. */
+export interface CategoryShare {
+  category: string;
+  rows: number;
+  totalImpliedUsd: number;
+  sharePct: number;
+}
+
+export function categoryBreakdown(board: BoardRow[]): CategoryShare[] {
+  const total = board.reduce((acc, row) => acc + row.implied_value_usd, 0);
+  const grouped = new Map<string, { rows: number; total: number }>();
+  for (const row of board) {
+    const key = row.category ?? 'Other';
+    const entry = grouped.get(key) ?? { rows: 0, total: 0 };
+    entry.rows += 1;
+    entry.total += row.implied_value_usd;
+    grouped.set(key, entry);
+  }
+  return [...grouped.entries()]
+    .map(([category, entry]) => ({
+      category,
+      rows: entry.rows,
+      totalImpliedUsd: entry.total,
+      sharePct: total > 0 ? Math.round((entry.total / total) * 1000) / 10 : 0,
+    }))
+    .sort((a, b) => b.totalImpliedUsd - a.totalImpliedUsd);
+}
+
 /** The snapshot out of a file's text, refused unless it is the shape the model scores. */
 export function parseSnapshot(text: string): Snapshot {
   let raw: unknown;
