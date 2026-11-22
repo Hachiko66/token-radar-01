@@ -1,4 +1,4 @@
-// Board statistics for Token Radar radar-6.
+// Board statistics for Token Radar radar-7.
 //
 // These helpers turn a scored board into the numbers the program logs and
 // the dashboard shows in its lede: totals, medians, the top category, and
