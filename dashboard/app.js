@@ -26,12 +26,13 @@
     if (days >= 365) return (days / 365).toFixed(1) + 'y';
     return Math.max(0, Math.round(days)) + 'd';
   }
-  // The radar-8 model, in the page, from the fits data.js carries: a multiple
+  // The radar-9 model, in the page, from the fits data.js carries: a multiple
   // fitted on the traded protocols, and odds from the peers' record. The page
   // recomputes a row from the snapshot figures and checks the number
   // board.json carries, so the page's code and the board's data are visibly
-  // the same arithmetic. The chain count enters as log(1 + chains), the
-  // same shape the builder fitted.
+  // the same arithmetic. The chain count enters as log(1 + chains) and the
+  // fees flag as 1 when the protocol recorded fees in the 30 days to
+  // 2026-11-14, the same shapes the builder fitted.
   function fittedMultiple(tvl) {
     var fit = DATA.fit.value;
     return Math.exp(fit.intercept + fit.sizeSlope * Math.log(Math.max(1, tvl) / 1e8));
@@ -39,7 +40,7 @@
   function tokenOdds(row) {
     var beta = DATA.fit.odds.beta;
     var growth = row.change_7d === null || row.change_7d === undefined ? 0 : Math.min(180, Math.max(-50, row.change_7d));
-    var x = beta[0] + beta[1] * Math.log(Math.max(1, row.tvl_usd) / 1e8) + beta[2] * (growth / 100) + beta[3] * Math.log1p(row.chains ? row.chains.length : 0);
+    var x = beta[0] + beta[1] * Math.log(Math.max(1, row.tvl_usd) / 1e8) + beta[2] * (growth / 100) + beta[3] * Math.log1p(row.chains ? row.chains.length : 0) + beta[4] * (row.has_fees ? 1 : 0);
     var odds = 1 / (1 + Math.exp(-x));
     return Math.min(0.95, Math.max(0.05, odds));
   }
@@ -109,6 +110,7 @@
     var growth = row.change_7d === null || row.change_7d === undefined ? 0 : row.change_7d;
     if (growth >= 20) parts.push({ w: 0.1, s: 'seven-day growth of ' + fmtPct(growth) + ' lifts its odds' });
     else if (growth <= -20) parts.push({ w: 0.1, s: 'seven-day growth of ' + fmtPct(growth) + ' drags its odds down' });
+    if (row.has_fees) parts.push({ w: 0.51, s: 'it recorded fees in the last 30 days, which lifts its odds' });
     parts.sort(function (a, b) { return b.w - a.w; });
     var drivers = parts.slice(0, 2).map(function (p) { return p.s; }).join('; ');
     var mults = DATA.rows.map(function (r) { return r.fitted_multiple; }).sort(function (a, b) { return a - b; });
@@ -282,7 +284,7 @@
   function lede() {
     return el('section', { class: 'lede' },
       el('div', null,
-        el('h1', { text: 'Token Radar radar-8: median-fitted size curve, ten-fold and walk-forward evidence, live self-checks, ' + DATA.farm_counts.farm + ' farm plans worth it' }),
+        el('h1', { text: 'Token Radar radar-9: fees flag in the odds, value model tested to its limit, live self-checks, ' + DATA.farm_counts.farm + ' farm plans worth it' }),
         el('p', { text: 'The watchlist is the floor: every protocol with at least $' + Math.round(DATA.floor_usd / 1e6) + 'M of TVL and no token on record. The early radar adds ' + DATA.early_size + ' pre-token protocols below that floor. Implied value is TVL x a multiple fitted on the traded protocols x the odds of a token from the peers\u2019 record — a model, not a promise.' })
       ),
       el('div', { class: 'facts' },
@@ -493,10 +495,10 @@
       el('h2', { text: 'How implied value is computed' }),
       el('p', { class: 'sub', text: 'Every row is scored by two fits of the snapshot itself. No protocol name is special-cased, and no row is hand-picked.' }),
       el('div', { class: 'formula' },
-        'implied = round( tvl_usd x fittedMultiple x tokenOdds ) — fittedMultiple = exp(' + fit.value.intercept.toFixed(3) + ' + ' + fit.value.sizeSlope.toFixed(3) + ' x ln(tvl_usd / $100M)), fitted by a median (LAD) regression on ' + fit.value.n + ' traded protocols; tokenOdds is a logistic regression on ' + fit.odds.n + ' peers, on log TVL, seven-day growth and log(1 + chain count), bounded to 5%-95%.'
+        'implied = round( tvl_usd x fittedMultiple x tokenOdds ) — fittedMultiple = exp(' + fit.value.intercept.toFixed(3) + ' + ' + fit.value.sizeSlope.toFixed(3) + ' x ln(tvl_usd / $100M)), fitted by a median (LAD) regression on ' + fit.value.n + ' traded protocols; tokenOdds is a logistic regression on ' + fit.odds.n + ' peers, on log TVL, seven-day growth, log(1 + chain count) and a fees flag, bounded to 5%-95%.'
       ),
-      el('p', { class: 'sub', text: 'The thesis: a launch is priced on real usage, and the price per dollar of usage falls as protocols get bigger — that is what the traded protocols show, a multiple of about 0.13 at $100M of TVL falling with size. The odds are the peers\u2019 record: of the 532 protocols with a recorded listing date, 262 have a token and 270 do not, and the odds rise with size and growth. One week of growth alone never calls a protocol worthless or certain, because the odds are bounded. The median fit is radar-8\u2019s change: the evidence tables grade the mean absolute log error, so the conditional median is the estimator that minimises the graded miss — it beats the mean fit in all four held-out columns (leave-one-out 1.485 vs 1.510, 10-fold 1.510 vs 1.533, walk-forward 1.427 / 1.438 vs 1.458 / 1.599). The early radar is every pre-token protocol below the watchlist floor, by TVL, and the live-token protocols are set aside with their market caps shown.' }),
-      el('p', { class: 'sub', text: 'What the snapshot cannot see: revenue, points programs, and whether a team ever intends to launch. Odds are the probability a token is eventually recorded, given the snapshot\u2019s figures, estimated from one date\u2019s cross-section — not a claim that a token will launch. Seven days is a short window, and the traded set is only 85 protocols, so every implied value carries a P25-P75 range in the detail view. Implied value is an estimate, not a price.' })
+      el('p', { class: 'sub', text: 'The thesis: a launch is priced on real usage, and the price per dollar of usage falls as protocols get bigger — that is what the traded protocols show, a multiple of about 0.13 at $100M of TVL falling with size. The odds are the peers\u2019 record: of the 532 protocols with a recorded listing date, 262 have a token and 270 do not, and the odds rise with size and growth. One week of growth alone never calls a protocol worthless or certain, because the odds are bounded. radar-9\u2019s change is a fees flag in the odds: a protocol that recorded fees in the 30 days to 2026-11-14 gets higher odds of a token, improving all four held-out columns (leave-one-out 0.670 vs 0.675, 10-fold 0.671 vs 0.674, walk-forward 0.979 / 0.797 vs 0.995 / 0.806) and the Brier (0.234 vs 0.237). The value model is unchanged: interactions, curves, other estimators, wider fit sets and fees in the value were all tested, and every one fails a held-out column, so the size curve stands. The early radar is every pre-token protocol below the watchlist floor, by TVL, and the live-token protocols are set aside with their market caps shown.' }),
+      el('p', { class: 'sub', text: 'What the snapshot cannot see: the size of revenue, points programs, and whether a team ever intends to launch. Odds are the probability a token is eventually recorded, given the snapshot\u2019s figures, estimated from one date\u2019s cross-section — not a claim that a token will launch. Seven days is a short window, and the traded set is only 85 protocols, so every implied value carries a P25-P75 range in the detail view. Implied value is an estimate, not a price.' })
     );
   }
 
