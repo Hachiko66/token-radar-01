@@ -1,19 +1,23 @@
-// The token radar's model, radar-8: every value term is fitted on the snapshot and tested held-out four ways.
+// The token radar's model, radar-9: every value term is fitted on the snapshot and tested held-out four ways.
 //
 //   implied value = TVL x fitted multiple x token odds
 //
-// radar-8 changes the fits where the held-out tests say so, and nowhere
-// else. The value fit is now a median regression (least absolute
-// deviations): the evidence tables grade the mean absolute log error,
-// so the conditional median is the honest estimator, and it lowers the
-// miss in all four held-out columns — leave-one-out 1.485 (was 1.510
-// for the mean fit), 10-fold 1.510 (was 1.533), walk-forward 1.427 /
-// 1.438 (was 1.458 / 1.599). The odds fit now takes log(1 + chain
-// count) instead of the raw count: it improves all five held-out
-// columns, and the tenth chain adds less than the second. Every other
-// term was re-tested under the new fits and still fails at least one
-// column, so the kept sets are unchanged: the value model keeps only
-// the size curve, the odds model keeps size, growth and chain count.
+// radar-9 changes one thing: the odds fit gains a fees flag — whether the protocol recorded any fees
+// in the 30 days ending on the snapshot date (2026-11-14), from DefiLlama's daily fees history,
+// vendored in lib/fees.ts. It improves all four held-out columns — leave-one-out log-loss 0.6699
+// (was 0.6747), 10-fold 0.6710 (was 0.6740, and better on two further seeds), walk-forward
+// 0.9792 / 0.7974 (was 0.9949 / 0.8061) — and the Brier score, 0.2342 against 0.2372. The flag's
+// coefficient is +0.49, about 1.6x the odds of a token for a protocol that charges fees.
+// The value model is unchanged: radar-9 attacked it structurally — interactions (a size slope
+// per category, size x chains, size x age, size x growth), non-linear size (quadratic, hinge,
+// spline, median per TVL bin), other estimators (Theil-Sen, Huber, other quantiles,
+// winsorisation), wider fit sets (118 and 128 traded protocols), robust and recency-weighted
+// fits, and fees in the value itself (a two-tier size + log(fees / TVL) fit, a fees-multiple
+// target, fees alone) — and every candidate fails at least one held-out column, so the median
+// size curve stands. The competitors' advertised numbers do not reproduce under the same
+// protocol: the best in-sample miss on the 85 is x4.28 and the best winsorised leave-one-out
+// x4.15, against a claimed LOO x2.99; only a high-TVL subset (TVL >= $200M, n=8) gets near
+// it (x2.84).
 //
 // The multiple is fitted, not asserted: on the 85 traded protocols whose token
 // plausibly prices off TVL (live token, market cap and TVL both on record, not
@@ -27,8 +31,11 @@
 // fit (0.153, slope -0.475). The token odds come from the peers' record,
 // not a forecast: a logistic regression on 532 peers with a recorded
 // listing date (262 with a token, 270 without), fitted on log TVL,
-// seven-day growth and log(1 + chain count), then bounded to 5%-95% so
-// one week's growth alone never calls a protocol worthless or certain.
+// seven-day growth, log(1 + chain count) and the fees flag, then bounded
+// to 5%-95% so one week's growth alone never calls a protocol worthless or
+// certain. The flag is 1 when the protocol recorded fees in the 30 days
+// ending 2026-11-14 (DefiLlama summary/fees, vendored in lib/fees.ts);
+// 325 of the 532 peers and 117 of the 226 board rows have it.
 // Odds are P(a token is eventually recorded | the snapshot's figures),
 // estimated from one cross-section, and the dashboard says so.
 //
@@ -37,19 +44,26 @@
 // protocols listed before 2024-01-01 and before 2025-01-01, test on the
 // ones listed after). A term stays only if it lowers the miss in all of
 // them. The size curve is the only term the value model keeps; category,
-// growth, age and chain count all fail at least one test and are out. The
-// odds model keeps size, growth and log chain count; age and category fail
-// the walk-forward test and are out. The full tables are in VALUE_EVIDENCE
-// and ODDS_EVIDENCE, and the dashboard shows them, so the model's choices
-// can be checked, not trusted.
+// growth, age and chain count all fail at least one test and are out, and
+// radar-9's structural attack — interactions, curves, other estimators,
+// wider fit sets, fees in the value — adds nothing. The odds model keeps
+// size, growth, log chain count and the fees flag; age and category fail
+// the walk-forward test and are out, and a continuous log(fees / TVL)
+// term fails the 2025 walk-forward and is out. The full tables are in
+// VALUE_EVIDENCE and ODDS_EVIDENCE, and the dashboard shows them, so the
+// model's choices can be checked, not trusted.
 //
-// radar-7 is the baseline this replaces: the same formula with a mean fit
-// (OLS, multiple = exp(-1.878 - 0.475 x ln(TVL / $100M))) and a raw chain
-// count, which scored 0.897 on development. radar-7's board had a total
-// implied value of about $1.02B; radar-8's steeper median curve puts it
-// near $0.92B, the top three keep their names at lower values, and 122 of
-// 226 rows move five ranks or more. No protocol name is ever special-cased:
+// radar-8 is the baseline this replaces: the same value fit and the same odds
+// on log TVL, growth and log chain count, without the fees flag. radar-7
+// scored 0.897 on development (radar-8 was never scored: the account's
+// submission cap was spent when it was ready). radar-9's board totals
+// $913,398,911 against radar-8's $920,464,284; the top three keep their
+// names at slightly higher values (Steakhouse $25,506,920, Veda
+// $22,396,564, Gauntlet $19,324,306), and 184 of 226 rows move five ranks
+// or more on the flag alone. No protocol name is ever special-cased:
 // the same two fits score every row.
+
+import { hasFees30d } from './fees.ts';
 
 /** The snapshot's protocol entry: exactly the ten fields the sealed input carries. */
 export interface SnapshotProtocol {
@@ -92,7 +106,7 @@ export function categoryGroup(category: string | null): CategoryGroup {
 }
 
 /** The model's version label: the dashboard names it and the rules quote it. */
-export const MODEL_VERSION = 'radar-8';
+export const MODEL_VERSION = 'radar-9';
 
 /** How many pre-token protocols below the watchlist floor the early radar carries, by TVL. */
 export const EARLY_ROWS = 200;
@@ -238,7 +252,7 @@ export function fittedMultiple(tvlUsd: number, fit: ValueFit): number {
   return Math.exp(fit.intercept + fit.sizeSlope * Math.log(tvlUsd / 100_000_000));
 }
 
-/** The fitted token-odds model: a logistic regression on log TVL, seven-day growth and chain count. */
+/** The fitted token-odds model: a logistic regression on log TVL, seven-day growth, chain count and the fees flag. */
 export interface OddsFit {
   beta: number[];
   n: number;
@@ -250,11 +264,13 @@ export function peerSet(snapshot: Snapshot): SnapshotProtocol[] {
   return snapshot.protocols.filter((p) => p.category !== 'CEX' && !VERSIONED.test(p.name) && p.listed_at !== null && p.tvl_usd > 0);
 }
 
-/** The odds model's features for one protocol: intercept, log TVL, clamped growth, log(1 + chain count).
- * The log shape is radar-8's change: the tenth chain adds less than the second, and it improves
- * all five held-out columns against the raw count. */
+/** The odds model's features for one protocol: intercept, log TVL, clamped growth, log(1 + chain count),
+ * and the fees flag. The log shape is radar-8's change: the tenth chain adds less than the second,
+ * and it improves all five held-out columns against the raw count. The flag is radar-9's change:
+ * whether the protocol recorded fees in the 30 days ending 2026-11-14 (lib/fees.ts) — it improves
+ * all four held-out columns and the Brier score, where the continuous log(fees / TVL) fails. */
 export function oddsFeatures(p: SnapshotProtocol): number[] {
-  return [1, Math.log(p.tvl_usd / 100_000_000), Math.min(180, Math.max(-50, p.change_7d ?? 0)) / 100, Math.log1p(p.chains.length)];
+  return [1, Math.log(p.tvl_usd / 100_000_000), Math.min(180, Math.max(-50, p.change_7d ?? 0)) / 100, Math.log1p(p.chains.length), hasFees30d(p.slug) ? 1 : 0];
 }
 
 /** Fit the odds model by iteratively reweighted least squares (Newton's method). */
@@ -322,7 +338,11 @@ export interface EvidenceRow {
  * miss in all four columns, so only it stays. The median line beats the
  * mean (OLS) line in every column (OLS: 1.510 / 1.533 / 1.458 / 1.599);
  * the median miss is worse (x3.79 vs x3.29 leave-one-out) — the median
- * fit trades typical accuracy for fewer large errors.
+ * fit trades typical accuracy for fewer large errors. radar-9's structural
+ * attack adds the last six rows: interactions, a quadratic size curve, fees
+ * in the value, and the wider 128 fit set all fail at least one column —
+ * per-category slopes and the size x age interaction even beat the baseline
+ * leave-one-out and collapse walk-forward, so they are out.
  */
 export const VALUE_EVIDENCE: EvidenceRow[] = [
   { term: 'flat multiple, no size curve', loo: 1.653, tenfold: 1.664, wf2024: 1.742, wf2025: 1.833, kept: false },
@@ -331,6 +351,12 @@ export const VALUE_EVIDENCE: EvidenceRow[] = [
   { term: '+ 7-day growth', loo: 1.503, tenfold: 1.510, wf2024: 1.684, wf2025: 1.412, kept: false },
   { term: '+ age with no token', loo: 1.527, tenfold: 1.544, wf2024: 1.413, wf2025: 1.853, kept: false },
   { term: '+ chain count', loo: 1.495, tenfold: 1.523, wf2024: 1.434, wf2025: 1.438, kept: false },
+  { term: '+ size x chains interaction', loo: 1.500, tenfold: 1.544, wf2024: 1.525, wf2025: 1.498, kept: false },
+  { term: '+ size x age interaction', loo: 1.459, tenfold: 1.510, wf2024: 2.582, wf2025: 1.439, kept: false },
+  { term: '+ size slope per category', loo: 1.470, tenfold: 1.488, wf2024: 1.627, wf2025: 1.575, kept: false },
+  { term: '+ quadratic size', loo: 1.508, tenfold: 1.527, wf2024: 1.515, wf2025: 1.483, kept: false },
+  { term: '+ fees / TVL in value (two-tier)', loo: 1.507, tenfold: 1.537, wf2024: 1.444, wf2025: 1.509, kept: false },
+  { term: '+ fit set of 128 traded', loo: 1.504, tenfold: 1.522, wf2024: 1.530, wf2025: 1.556, kept: false },
 ];
 
 /**
@@ -343,6 +369,12 @@ export const VALUE_EVIDENCE: EvidenceRow[] = [
  * lower the loss in all four columns and stay. The chain count is logged in
  * radar-8: the raw count scored 0.6751 / 0.6753 / 0.9988 / 0.8088, the log
  * scores 0.6747 / 0.6740 / 0.9949 / 0.8061 — a small but consistent gain.
+ * radar-9 adds the fees flag: a protocol that recorded fees in the 30 days
+ * ending 2026-11-14 (DefiLlama, lib/fees.ts) scores 0.6699 / 0.6710 /
+ * 0.9792 / 0.7974 and a Brier of 0.2342, better in every column and on two
+ * further 10-fold seeds (0.6671 and 0.6705, against 0.6713 and 0.6755).
+ * The continuous log(fees / TVL) term fails the 2025 walk-forward
+ * (0.8122 against 0.8061), so the flag — not the amount — is what stays.
  */
 export const ODDS_EVIDENCE: EvidenceRow[] = [
   { term: 'base rate only', loo: 0.6949, tenfold: 0.6947, wf2024: 1.0943, wf2025: 0.8637, kept: false },
@@ -350,6 +382,7 @@ export const ODDS_EVIDENCE: EvidenceRow[] = [
   { term: '+ size ln(TVL)', loo: 0.6905, tenfold: 0.6912, wf2024: 1.0935, wf2025: 0.8563, kept: true },
   { term: '+ 7-day growth', loo: 0.6757, tenfold: 0.6752, wf2024: 1.0105, wf2025: 0.8168, kept: true },
   { term: '+ chain count (log1p)', loo: 0.6747, tenfold: 0.6740, wf2024: 0.9949, wf2025: 0.8061, kept: true },
+  { term: '+ recorded fees in last 30d', loo: 0.6699, tenfold: 0.6710, wf2024: 0.9792, wf2025: 0.7974, kept: true },
   { term: '+ category effects', loo: 0.6654, tenfold: 0.6617, wf2024: 1.9999, wf2025: 0.8089, kept: false },
 ];
 
@@ -362,21 +395,23 @@ export const ODDS_EVIDENCE: EvidenceRow[] = [
  */
 export const VALUE_CALIBRATION = { n: 85, sigma: 1.954, p25p75Pct: 51, p10p90Pct: 82 };
 
-/** How honest the odds model is: Brier score against the base rate, and mean prediction against observed rate by decile. */
+/** How honest the odds model is: Brier score against the base rate, and mean prediction against observed rate by decile.
+ * radar-9's fees flag lowers the Brier to 0.2342 (was 0.2372); the deciles below are the flag model's,
+ * predictions bounded to 5%-95% as the board uses them. */
 export const ODDS_CALIBRATION = {
-  brierModel: 0.2372,
+  brierModel: 0.2342,
   brierBase: 0.2499,
   deciles: [
-    { pred: 0.285, observed: 0.283, n: 53 },
-    { pred: 0.394, observed: 0.245, n: 53 },
-    { pred: 0.431, observed: 0.358, n: 53 },
-    { pred: 0.459, observed: 0.509, n: 53 },
-    { pred: 0.484, observed: 0.537, n: 54 },
-    { pred: 0.507, observed: 0.642, n: 53 },
-    { pred: 0.53, observed: 0.491, n: 53 },
-    { pred: 0.562, observed: 0.623, n: 53 },
-    { pred: 0.596, observed: 0.642, n: 53 },
-    { pred: 0.673, observed: 0.593, n: 54 },
+    { pred: 0.264, observed: 0.302, n: 53 },
+    { pred: 0.364, observed: 0.302, n: 53 },
+    { pred: 0.409, observed: 0.453, n: 53 },
+    { pred: 0.447, observed: 0.358, n: 53 },
+    { pred: 0.487, observed: 0.463, n: 54 },
+    { pred: 0.521, observed: 0.509, n: 53 },
+    { pred: 0.552, observed: 0.604, n: 53 },
+    { pred: 0.578, observed: 0.66, n: 53 },
+    { pred: 0.616, observed: 0.642, n: 53 },
+    { pred: 0.685, observed: 0.63, n: 54 },
   ],
 };
 
@@ -535,6 +570,7 @@ export interface RadarRow {
   implied_value_usd: number;
   fitted_multiple: number;
   token_odds: number;
+  has_fees: boolean;
   value_if_launches_usd: number;
   p25_usd: number;
   p75_usd: number;
@@ -966,6 +1002,7 @@ export function radarRow(row: BoardRow): RadarRow {
     implied_value_usd: row.implied_value_usd,
     fitted_multiple: row.model.fitted_multiple,
     token_odds: row.model.token_odds,
+    has_fees: hasFees30d(row.slug),
     value_if_launches_usd: row.model.value_if_launches_usd,
     p25_usd: row.model.p25_usd,
     p75_usd: row.model.p75_usd,
