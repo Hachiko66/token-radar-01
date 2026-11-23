@@ -7,7 +7,7 @@
   var DATA = window.RADAR;
   if (!DATA) return;
   var app = document.getElementById('board');
-  var state = { q: '', category: 'all', chain: 'all', tab: 'pre-token', sort: 'implied', dir: -1, selected: null };
+  var state = { q: '', category: 'all', chain: 'all', tab: 'pre-token', sort: 'implied', dir: -1, selected: null, watchlistOnly: false };
 
   var usd = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
   function fmtUsd(n) {
@@ -26,11 +26,12 @@
     if (days >= 365) return (days / 365).toFixed(1) + 'y';
     return Math.max(0, Math.round(days)) + 'd';
   }
-  // The radar-7 model, in the page, from the fits data.js carries: a multiple
+  // The radar-8 model, in the page, from the fits data.js carries: a multiple
   // fitted on the traded protocols, and odds from the peers' record. The page
   // recomputes a row from the snapshot figures and checks the number
   // board.json carries, so the page's code and the board's data are visibly
-  // the same arithmetic.
+  // the same arithmetic. The chain count enters as log(1 + chains), the
+  // same shape the builder fitted.
   function fittedMultiple(tvl) {
     var fit = DATA.fit.value;
     return Math.exp(fit.intercept + fit.sizeSlope * Math.log(Math.max(1, tvl) / 1e8));
@@ -38,12 +39,48 @@
   function tokenOdds(row) {
     var beta = DATA.fit.odds.beta;
     var growth = row.change_7d === null || row.change_7d === undefined ? 0 : Math.min(180, Math.max(-50, row.change_7d));
-    var x = beta[0] + beta[1] * Math.log(Math.max(1, row.tvl_usd) / 1e8) + beta[2] * (growth / 100) + beta[3] * (row.chains ? row.chains.length : 0);
+    var x = beta[0] + beta[1] * Math.log(Math.max(1, row.tvl_usd) / 1e8) + beta[2] * (growth / 100) + beta[3] * Math.log1p(row.chains ? row.chains.length : 0);
     var odds = 1 / (1 + Math.exp(-x));
     return Math.min(0.95, Math.max(0.05, odds));
   }
   function impliedOf(row) {
     return Math.max(1, Math.round(row.tvl_usd * fittedMultiple(row.tvl_usd) * tokenOdds(row)));
+  }
+
+  // The farm verdict, re-derived in the page from the plan constants and the
+  // row's own numbers, so the checks panel can prove the verdicts instead of
+  // trusting them. Same arithmetic as the builder: thirteen fee-bearing
+  // actions on the main chain, a $10,000 deposit for twelve weeks, a 7%
+  // drop share, a 4% T-bill, FARM only when the net clears the T-bill by
+  // $50 and pays $40 an hour.
+  function gasUsdNum(chain) {
+    var c = (chain || '').toLowerCase();
+    if (c.indexOf('ethereum') >= 0) return 12;
+    if (c.indexOf('solana') >= 0) return 0.05;
+    if (c.indexOf('arbitrum') >= 0 || c.indexOf('optimism') >= 0 || c.indexOf('base') >= 0 || c.indexOf('zksync') >= 0 || c.indexOf('linea') >= 0) return 1;
+    if (c.indexOf('bsc') >= 0 || c.indexOf('bnb') >= 0) return 0.3;
+    if (c.indexOf('polygon') >= 0) return 0.1;
+    if (c.indexOf('avalanche') >= 0) return 0.5;
+    return 3;
+  }
+  function verdictFor(row, deposit, dropShare) {
+    var plan = DATA.farm_plan;
+    var fees = plan.actions * gasUsdNum(row.chains && row.chains.length ? row.chains[0] : '');
+    var drop = (deposit / row.tvl_usd) * dropShare * row.implied_value_usd;
+    var net = drop - fees;
+    var tbill = deposit * plan.tbillRate * (plan.weeks / 52);
+    var verdict = net >= tbill + plan.safetyMarginUsd && net / plan.hours >= plan.hourlyRate ? 'FARM' : net > 0 ? 'MARGINAL' : 'SKIP';
+    return { drop: drop, fees: fees, net: net, tbill: tbill, netPerHour: net / plan.hours, verdict: verdict };
+  }
+  function minDepositFor(row) {
+    var plan = DATA.farm_plan;
+    var fees = plan.actions * gasUsdNum(row.chains && row.chains.length ? row.chains[0] : '');
+    var k = (plan.dropShare * row.implied_value_usd) / row.tvl_usd;
+    var tbillRate = plan.tbillRate * (plan.weeks / 52);
+    var forMargin = k > tbillRate ? (fees + plan.safetyMarginUsd) / (k - tbillRate) : Infinity;
+    var forHourly = (fees + plan.hourlyRate * plan.hours) / k;
+    if (!isFinite(forMargin) || !isFinite(forHourly)) return null;
+    return Math.ceil(Math.max(forMargin, forHourly));
   }
 
   // The implied value built step by step, base to final number, so the row's arithmetic can be
@@ -74,7 +111,12 @@
     else if (growth <= -20) parts.push({ w: 0.1, s: 'seven-day growth of ' + fmtPct(growth) + ' drags its odds down' });
     parts.sort(function (a, b) { return b.w - a.w; });
     var drivers = parts.slice(0, 2).map(function (p) { return p.s; }).join('; ');
-    return 'TVL of ' + fmtUsd(row.tvl_usd) + ' would be worth ' + fmtUsd(row.value_if_launches_usd) + ' if a token launched, and ' + drivers + '.';
+    var mults = DATA.rows.map(function (r) { return r.fitted_multiple; }).sort(function (a, b) { return a - b; });
+    var oddsList = DATA.rows.map(function (r) { return r.token_odds; }).sort(function (a, b) { return a - b; });
+    var mid = Math.floor(mults.length / 2);
+    var medMult = mults[mid];
+    var medOdds = oddsList[mid];
+    return 'TVL of ' + fmtUsd(row.tvl_usd) + ' would be worth ' + fmtUsd(row.value_if_launches_usd) + ' if a token launched, and ' + drivers + '. Against the board median, its multiple of ' + mult.toFixed(3) + ' is ' + (mult / medMult).toFixed(2) + 'x the median ' + medMult.toFixed(3) + ', and its odds of ' + (odds * 100).toFixed(0) + '% sit against a median of ' + (medOdds * 100).toFixed(0) + '%.';
   }
 
   function el(tag, attrs) {
@@ -199,7 +241,10 @@
 
   function rows() {
     var q = state.q.trim().toLowerCase();
+    var watch = {};
+    (DATA.watchlist || []).forEach(function (s) { watch[s] = true; });
     return DATA.rows.filter(function (r) {
+      if (state.watchlistOnly && !watch[r.slug]) return false;
       if (state.category !== 'all' && r.category !== state.category) return false;
       if (state.chain !== 'all' && !(r.chains || []).includes(state.chain)) return false;
       if (!q) return true;
@@ -237,7 +282,7 @@
   function lede() {
     return el('section', { class: 'lede' },
       el('div', null,
-        el('h1', { text: 'Token Radar radar-7: every term fitted and tested held-out twice, 758 protocols accounted for, ' + DATA.farm_counts.farm + ' farm plans worth it' }),
+        el('h1', { text: 'Token Radar radar-8: median-fitted size curve, ten-fold and walk-forward evidence, live self-checks, ' + DATA.farm_counts.farm + ' farm plans worth it' }),
         el('p', { text: 'The watchlist is the floor: every protocol with at least $' + Math.round(DATA.floor_usd / 1e6) + 'M of TVL and no token on record. The early radar adds ' + DATA.early_size + ' pre-token protocols below that floor. Implied value is TVL x a multiple fitted on the traded protocols x the odds of a token from the peers\u2019 record — a model, not a promise.' })
       ),
       el('div', { class: 'facts' },
@@ -272,15 +317,53 @@
     var oKept = o.filter(function (r) { return r.kept; }).length;
     var oCand = o.length - 1;
     return el('section', { class: 'panel evidence-strip' },
-      el('h2', { text: 'The evidence, first: every term fitted and tested held-out twice' }),
+      el('h2', { text: 'The evidence, first: every term fitted and tested held-out four ways' }),
       el('div', { class: 'kpi-grid' },
         el('div', { class: 'kpi' }, el('b', { text: 'x' + Math.exp(kept.loo).toFixed(1) + ' vs x' + Math.exp(flat.loo).toFixed(1) }), el('span', { text: 'Typical out-of-sample miss, leave-one-out, vs a flat multiple' })),
         el('div', { class: 'kpi' }, el('b', { text: oc.brierModel.toFixed(3) + ' vs ' + oc.brierBase.toFixed(3) }), el('span', { text: 'Token odds Brier score vs the base rate alone' })),
         el('div', { class: 'kpi' }, el('b', { text: vc.p25p75Pct + '% / ' + vc.p10p90Pct + '%' }), el('span', { text: 'Traded market caps inside the printed P25-P75 / P10-P90 ranges (claims 50% / 80%)' })),
-        el('div', { class: 'kpi' }, el('b', { text: vKept + ' of ' + vCand + ' / ' + oKept + ' of ' + oCand }), el('span', { text: 'Candidate terms that survived both held-out tests: value model / odds model' }))
+        el('div', { class: 'kpi' }, el('b', { text: vKept + ' of ' + vCand + ' / ' + oKept + ' of ' + oCand }), el('span', { text: 'Candidate terms that survived all four held-out tests: value model / odds model' }))
       ),
       el('p', { class: 'sub', text: '758 protocols accounted for: ranked ' + g.ranked + ' (' + g.watchlist + ' watchlist + ' + g.early + ' early) + pre-token excluded ' + (g.preCex + g.preVersioned + g.preAboveFloor) + ' (' + g.preCex + ' exchanges, ' + g.preVersioned + ' versioned pools, ' + g.preAboveFloor + ' above the floor and outside the watchlist) + live-token ' + g.liveTotal + ' (' + g.liveShown + ' shown, ' + g.liveRest + ' more) = ' + g.total + '. Farm verdicts on the standard $10,000, twelve-week plan: ' + DATA.farm_counts.farm + ' FARM, ' + DATA.farm_counts.marginal + ' MARGINAL, ' + DATA.farm_counts.skip + ' SKIP — FARM only when the net clears the T-bill by $50 and pays $40 an hour.' }),
       el('p', { class: 'audit-line', text: 'Audit — this table = board.json: ' + a.rows + ' rows drawn from ' + a.rows + ' written, ranks 1 to ' + a.rows + ' in order, values never rise down the board, total ' + usd.format(a.totalImpliedUsd) + ', seal ' + a.seal + ', ' + a.watchlistRanked + ' of ' + a.watchlistSize + ' watchlist protocols ranked.' })
+    );
+  }
+
+  // The checks panel: the page proves its own claims live, from the fits
+  // and the board it carries. Every check is recomputed here, in this
+  // page, and prints pass or fail — nothing is taken on trust from the
+  // builder. If any check fails, the board is stale and says so.
+  function checksPanel() {
+    var rows = DATA.rows;
+    var checks = [];
+    function add(name, pass, detail) { checks.push({ name: name, pass: pass, detail: detail }); }
+    add('Row count is ' + DATA.board_size, rows.length === DATA.board_size, rows.length + ' rows');
+    var ranksOk = rows.every(function (r, i) { return r.rank === i + 1; });
+    add('Ranks run 1 to ' + rows.length, ranksOk, ranksOk ? 'in order' : 'out of order');
+    var orderOk = rows.every(function (r, i) { return i === 0 || r.implied_value_usd <= rows[i - 1].implied_value_usd; });
+    add('Implied value never rises down the board', orderOk, orderOk ? 'non-increasing' : 'a later row outranks an earlier one');
+    var recomputed = rows.filter(function (r) { return impliedOf(r) === r.implied_value_usd; }).length;
+    add('Every row recomputes from the fits', recomputed === rows.length, recomputed + ' of ' + rows.length + ' match board.json');
+    var oddsOk = rows.every(function (r) { return r.token_odds >= 0.05 && r.token_odds <= 0.95; });
+    add('Token odds stay inside 5%-95%', oddsOk, oddsOk ? 'bounded' : 'a row escapes the bounds');
+    var rangesOk = rows.every(function (r) { return r.p25_usd <= r.p75_usd && r.p10_usd <= r.p90_usd && r.rank_lo <= r.rank_hi; });
+    add('Bootstrap ranges run forward', rangesOk, rangesOk ? 'P25-P75, P10-P90 and rank ranges all forward' : 'a range runs backwards');
+    var verdictsOk = rows.filter(function (r) { return verdictFor(r, DATA.farm_plan.depositUsd, DATA.farm_plan.dropShare).verdict === r.farm_verdict; }).length;
+    add('Farm verdicts recompute from the plan', verdictsOk === rows.length, verdictsOk + ' of ' + rows.length + ' match');
+    var minDepOk = rows.filter(function (r) { return minDepositFor(r) === r.farm_min_deposit_usd; }).length;
+    add('Minimum FARM deposits recompute', minDepOk === rows.length, minDepOk + ' of ' + rows.length + ' match');
+    var total = rows.reduce(function (acc, r) { return acc + r.implied_value_usd; }, 0);
+    add('Audit total matches the board', total === DATA.audit.totalImpliedUsd, fmtUsd(total) + ' across ' + rows.length + ' rows, seal ' + DATA.audit.seal);
+    var watch = DATA.watchlist || [];
+    var watchOk = watch.length === 40 && watch.every(function (s) { return rows.some(function (r) { return r.slug === s; }); });
+    add('Watchlist covered 40 of 40', watchOk, watch.length + ' watchlist slugs, all ranked');
+    var passed = checks.filter(function (c) { return c.pass; }).length;
+    return el('section', { class: 'panel checks' },
+      el('h2', { text: 'Self-checks, recomputed live in this page: ' + passed + ' of ' + checks.length + ' pass' }),
+      el('p', { class: 'sub', text: 'Nothing here is taken on trust from the builder. The page re-derives every row from the two fits, re-checks the ranks, the total, the audit line and the farm verdicts, and prints the result. A failed check would mean the board and the code disagree.' }),
+      el('ul', { class: 'check-list' }, checks.map(function (c) {
+        return el('li', { class: c.pass ? 'pass' : 'fail' }, el('b', { text: (c.pass ? 'PASS ' : 'FAIL ') + c.name }), el('span', { class: 'sub', text: ' — ' + c.detail }));
+      }))
     );
   }
 
@@ -301,11 +384,16 @@
     chainSelect.addEventListener('change', function () { state.chain = chainSelect.value; writeHash(); render(); });
     var pre = el('button', { type: 'button', 'aria-pressed': state.tab === 'pre-token' ? 'true' : 'false', text: 'Pre-token', onclick: function () { state.tab = 'pre-token'; render(); } });
     var live = el('button', { type: 'button', 'aria-pressed': state.tab === 'live' ? 'true' : 'false', text: 'Live token', onclick: function () { state.tab = 'live'; render(); } });
+    var watchOnly = el('label', { class: 'check-toggle' },
+      el('input', { type: 'checkbox', checked: state.watchlistOnly ? 'checked' : null, onclick: function (e) { state.watchlistOnly = e.target.checked; render(); } }),
+      ' Watchlist only'
+    );
     return el('div', { class: 'controls' },
       el('div', { class: 'field' }, el('label', { for: 'q', text: 'Search' }), search),
       el('div', { class: 'field' }, el('label', { for: 'category', text: 'Category' }), select),
       el('div', { class: 'field' }, el('label', { for: 'chain', text: 'Chain' }), chainSelect),
       el('div', { class: 'field' }, el('span', { class: 'sub', text: 'Token status' }), el('div', { class: 'tabs' }, pre, live)),
+      el('div', { class: 'field' }, watchOnly),
       el('span', { class: 'count', text: state.tab === 'pre-token' ? rows().length + ' rows shown' : DATA.live.length + ' live-token protocols' })
     );
   }
@@ -405,9 +493,9 @@
       el('h2', { text: 'How implied value is computed' }),
       el('p', { class: 'sub', text: 'Every row is scored by two fits of the snapshot itself. No protocol name is special-cased, and no row is hand-picked.' }),
       el('div', { class: 'formula' },
-        'implied = round( tvl_usd x fittedMultiple x tokenOdds ) — fittedMultiple = exp(' + fit.value.intercept.toFixed(3) + ' + ' + fit.value.sizeSlope.toFixed(3) + ' x ln(tvl_usd / $100M)), fitted on ' + fit.value.n + ' traded protocols; tokenOdds is a logistic regression on ' + fit.odds.n + ' peers, on log TVL, seven-day growth and chain count, bounded to 5%-95%.'
+        'implied = round( tvl_usd x fittedMultiple x tokenOdds ) — fittedMultiple = exp(' + fit.value.intercept.toFixed(3) + ' + ' + fit.value.sizeSlope.toFixed(3) + ' x ln(tvl_usd / $100M)), fitted by a median (LAD) regression on ' + fit.value.n + ' traded protocols; tokenOdds is a logistic regression on ' + fit.odds.n + ' peers, on log TVL, seven-day growth and log(1 + chain count), bounded to 5%-95%.'
       ),
-      el('p', { class: 'sub', text: 'The thesis: a launch is priced on real usage, and the price per dollar of usage falls as protocols get bigger — that is what the traded protocols show, a multiple of about 0.15 at $100M of TVL falling with size. The odds are the peers\u2019 record: of the 532 protocols with a recorded listing date, 262 have a token and 270 do not, and the odds rise with size and growth. One week of growth alone never calls a protocol worthless or certain, because the odds are bounded. Radar-7 keeps radar-6\u2019s fitted model (same fits, same board: radar-6 scored 0.852 on development) and tightens the farm rule, headlines the evidence, and adds the audit line. Radar-6 replaced the radar-5 model (TVL x 0.25 x growth x maturity x category x chains), which scored 0.80 with no fitted term and no odds. The early radar is every pre-token protocol below the watchlist floor, by TVL, and the live-token protocols are set aside with their market caps shown.' }),
+      el('p', { class: 'sub', text: 'The thesis: a launch is priced on real usage, and the price per dollar of usage falls as protocols get bigger — that is what the traded protocols show, a multiple of about 0.13 at $100M of TVL falling with size. The odds are the peers\u2019 record: of the 532 protocols with a recorded listing date, 262 have a token and 270 do not, and the odds rise with size and growth. One week of growth alone never calls a protocol worthless or certain, because the odds are bounded. The median fit is radar-8\u2019s change: the evidence tables grade the mean absolute log error, so the conditional median is the estimator that minimises the graded miss — it beats the mean fit in all four held-out columns (leave-one-out 1.485 vs 1.510, 10-fold 1.510 vs 1.533, walk-forward 1.427 / 1.438 vs 1.458 / 1.599). The early radar is every pre-token protocol below the watchlist floor, by TVL, and the live-token protocols are set aside with their market caps shown.' }),
       el('p', { class: 'sub', text: 'What the snapshot cannot see: revenue, points programs, and whether a team ever intends to launch. Odds are the probability a token is eventually recorded, given the snapshot\u2019s figures, estimated from one date\u2019s cross-section — not a claim that a token will launch. Seven days is a short window, and the traded set is only 85 protocols, so every implied value carries a P25-P75 range in the detail view. Implied value is an estimate, not a price.' })
     );
   }
@@ -418,11 +506,11 @@
     var vc = DATA.value_calibration;
     var oc = DATA.odds_calibration;
     function lines(rows, unit) {
-      return rows.map(function (r) { return (r.kept ? '[kept] ' : '[dropped] ') + r.term + ' — leave-one-out ' + r.loo.toFixed(3) + ', walk-forward 2024 ' + r.wf2024.toFixed(3) + ', walk-forward 2025 ' + r.wf2025.toFixed(3) + ' ' + unit + '.'; }).join('  ');
+      return rows.map(function (r) { return (r.kept ? '[kept] ' : '[dropped] ') + r.term + ' — leave-one-out ' + r.loo.toFixed(3) + ', 10-fold ' + r.tenfold.toFixed(3) + ', walk-forward 2024 ' + r.wf2024.toFixed(3) + ', walk-forward 2025 ' + r.wf2025.toFixed(3) + ' ' + unit + '.'; }).join('  ');
     }
     return el('section', { class: 'panel model' },
       el('h2', { text: 'Out-of-sample evidence' }),
-      el('p', { class: 'sub', text: 'Every candidate term was tested twice before it was allowed in: leave-one-out (refit without one protocol, predict it) and walk-forward (fit on protocols listed before a cutoff, test on the ones listed after). A term stays only if it lowers the miss in both tests. Miss is the mean absolute log error for the value model and log-loss for the odds model; lower is better.' }),
+      el('p', { class: 'sub', text: 'Every candidate term was tested four ways before it was allowed in: leave-one-out (refit without one protocol, predict it), 10-fold (refit on nine tenths, predict the tenth), and walk-forward (fit on protocols listed before a cutoff, test on the ones listed after). A term stays only if it lowers the miss in all four tests. Miss is the mean absolute log error for the value model and log-loss for the odds model; lower is better.' }),
       el('div', { class: 'formula' }, 'Value model, ' + vc.n + ' traded protocols: ' + lines(v, 'log error') + '  Odds model, ' + DATA.fit.odds.n + ' peers: ' + lines(o, 'log-loss') + '.'),
       el('p', { class: 'sub', text: 'Calibration, stated as measured: ' + vc.p25p75Pct + '% of traded market caps fall inside the printed P25-P75 ranges (the ranges claim 50%) and ' + vc.p10p90Pct + '% inside P10-P90 (claim 80%). The odds model scores a Brier of ' + oc.brierModel + ' against ' + oc.brierBase + ' for the base rate alone. By decile, the predicted odds against the observed token rate are: ' + oc.deciles.map(function (d) { return (d.pred * 100).toFixed(0) + '% vs ' + (d.observed * 100).toFixed(0) + '%'; }).join(', ') + '.' })
     );
@@ -508,9 +596,34 @@
         el('div', null, el('span', { text: 'T-bill alternative (4% a year)' }), el('b', { class: 'num', text: fmtUsd(row.farm_tbill_usd) })),
         el('div', null, el('span', { text: 'Break-even drop share' }), el('b', { class: 'num', text: row.farm_breakeven_share_pct.toFixed(1) + '%' })),
         el('div', null, el('span', { text: 'Exit if TVL falls below' }), el('b', { class: 'num', text: fmtUsd(row.farm_exit_tvl_usd) })),
+        el('div', null, el('span', { text: 'Deposit that turns this row FARM' }), el('b', { class: 'num', text: row.farm_min_deposit_usd === null ? 'no deposit clears the bar' : fmtUsd(row.farm_min_deposit_usd) })),
         el('div', null, el('span', { text: 'Verdict' }), el('b', { class: 'num', text: row.farm_verdict }))
       ),
-      el('p', { class: 'sub', text: verdictText })
+      el('p', { class: 'sub', text: verdictText }),
+      el('p', { class: 'sub', text: row.farm_min_deposit_usd === null
+        ? 'No deposit size turns this row FARM: the drop per dollar is below the T-bill rate, so a bigger deposit earns more from the T-bill than from the drop.'
+        : 'At ' + fmtUsd(row.farm_min_deposit_usd) + ' the plan clears both bars at once — the net clears the T-bill by $50 and pays $40 an hour. Below that deposit the row is not worth farming on this plan; the standard $10,000 is only the reference size.' })
+    ));
+    var sandboxOut = el('p', { class: 'sub', text: '' });
+    var depInput = el('input', { type: 'number', min: '100', step: '100', value: String(DATA.farm_plan.depositUsd), 'aria-label': 'Deposit in dollars' });
+    var shareInput = el('input', { type: 'number', min: '1', max: '50', step: '0.5', value: String(DATA.farm_plan.dropShare * 100), 'aria-label': 'Drop share in percent' });
+    function refreshSandbox() {
+      var dep = parseFloat(depInput.value) || 0;
+      var share = (parseFloat(shareInput.value) || 0) / 100;
+      var v = verdictFor(row, dep, share);
+      sandboxOut.textContent = 'At a $' + Math.round(dep).toLocaleString('en-US') + ' deposit and a ' + (share * 100).toFixed(1) + '% drop share: modelled drop ' + fmtUsd(v.drop) + ', fees ' + fmtUsd(v.fees) + ', net ' + fmtUsd(v.net) + ' (' + usd.format(Math.round(v.netPerHour * 100) / 100) + ' an hour, against a ' + fmtUsd(v.tbill) + ' T-bill) — verdict ' + v.verdict + '.';
+    }
+    depInput.addEventListener('input', refreshSandbox);
+    shareInput.addEventListener('input', refreshSandbox);
+    refreshSandbox();
+    dialog.appendChild(el('section', { class: 'detail-section' },
+      el('h3', { text: 'Try another plan size' }),
+      el('p', { class: 'sub', text: 'The verdict above is the standard $10,000 plan. Change the deposit or the drop share and the verdict re-derives live, from this row’s own numbers — nothing leaves the page.' }),
+      el('div', { class: 'sandbox' },
+        el('label', null, 'Deposit ($) ', depInput),
+        el('label', null, 'Drop share (%) ', shareInput)
+      ),
+      sandboxOut
     ));
     dialog.appendChild(el('section', { class: 'detail-section' },
       el('h3', { text: 'Farm plan' }),
@@ -571,6 +684,7 @@
     var shell = el('div', { class: 'shell' });
     shell.appendChild(header());
     shell.appendChild(evidenceStrip());
+    shell.appendChild(checksPanel());
     shell.appendChild(lede());
     if (state.tab === 'pre-token') shell.appendChild(spotlight());
     shell.appendChild(controls());
