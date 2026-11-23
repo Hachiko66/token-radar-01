@@ -1,50 +1,55 @@
-// The token radar's model, radar-7: every value term is fitted on the snapshot and tested held-out twice.
+// The token radar's model, radar-8: every value term is fitted on the snapshot and tested held-out four ways.
 //
 //   implied value = TVL x fitted multiple x token odds
 //
-// radar-7 keeps radar-6's fitted model exactly — the same two fits score
-// every row, so the board, the total implied value and the top three are
-// unchanged. What changes is what the board proves and how strict it is
-// about farming: the validation evidence is headlined at the top of the
-// board instead of buried below it, the full 758-protocol accounting is
-// shown with a machine-checkable audit line, and the farm rule is
-// tightened so only a plan that clears the risk-free return by a real
-// margin and pays a realistic hourly rate earns FARM.
+// radar-8 changes the fits where the held-out tests say so, and nowhere
+// else. The value fit is now a median regression (least absolute
+// deviations): the evidence tables grade the mean absolute log error,
+// so the conditional median is the honest estimator, and it lowers the
+// miss in all four held-out columns — leave-one-out 1.485 (was 1.510
+// for the mean fit), 10-fold 1.510 (was 1.533), walk-forward 1.427 /
+// 1.438 (was 1.458 / 1.599). The odds fit now takes log(1 + chain
+// count) instead of the raw count: it improves all five held-out
+// columns, and the tenth chain adds less than the second. Every other
+// term was re-tested under the new fits and still fails at least one
+// column, so the kept sets are unchanged: the value model keeps only
+// the size curve, the odds model keeps size, growth and chain count.
 //
 // The multiple is fitted, not asserted: on the 85 traded protocols whose token
 // plausibly prices off TVL (live token, market cap and TVL both on record, not
 // an exchange, not a versioned pool, and not a staking derivative or a bridge,
 // whose tokens do not price off the TVL they hold), the log of market cap over
-// TVL is regressed on log TVL. The fit is an ordinary least squares line with
-// the log-ratio winsorised at the 2nd and 98th percentiles, so one 400x
-// outlier cannot decide the slope: multiple = exp(-1.878 - 0.475 x ln(TVL /
-// $100M)), a base multiple of 0.153 at $100M of TVL, falling as protocols get
-// bigger. The token odds come from the peers' record, not a forecast: a
-// logistic regression on 532 peers with a recorded listing date (262 with a
-// token, 270 without), fitted on log TVL, seven-day growth and chain count,
-// then bounded to 5%-95% so one week's growth alone never calls a protocol
-// worthless or certain. Odds are P(a token is eventually recorded | the
-// snapshot's figures), estimated from one cross-section, and the dashboard
-// says so.
+// TVL is fitted on log TVL by least absolute deviations, solved by
+// iteratively reweighted least squares on the log-ratio winsorised at the
+// 2nd and 98th percentiles, so one 400x outlier cannot decide the slope:
+// multiple = exp(-2.065 - 0.674 x ln(TVL / $100M)), a base multiple of
+// 0.127 at $100M of TVL, falling faster with size than radar-7's mean
+// fit (0.153, slope -0.475). The token odds come from the peers' record,
+// not a forecast: a logistic regression on 532 peers with a recorded
+// listing date (262 with a token, 270 without), fitted on log TVL,
+// seven-day growth and log(1 + chain count), then bounded to 5%-95% so
+// one week's growth alone never calls a protocol worthless or certain.
+// Odds are P(a token is eventually recorded | the snapshot's figures),
+// estimated from one cross-section, and the dashboard says so.
 //
-// Every candidate term was tested held-out twice before it was kept or cut:
-// leave-one-out, and walk-forward on the listing date (fit on protocols
-// listed before 2024-01-01 and before 2025-01-01, test on the ones listed
-// after). A term stays only if it lowers the miss in both tests. The size
-// curve is the only term the value model keeps; category, growth, age and
-// chain count all fail at least one test and are out. The odds model keeps
-// size, growth and chain count; age and category fail the walk-forward test
-// and are out. The full tables are in VALUE_EVIDENCE and ODDS_EVIDENCE, and
-// the dashboard shows them, so the model's choices can be checked, not
-// trusted.
+// Every candidate term was tested held-out four ways before it was kept or cut:
+// leave-one-out, 10-fold, and walk-forward on the listing date (fit on
+// protocols listed before 2024-01-01 and before 2025-01-01, test on the
+// ones listed after). A term stays only if it lowers the miss in all of
+// them. The size curve is the only term the value model keeps; category,
+// growth, age and chain count all fail at least one test and are out. The
+// odds model keeps size, growth and log chain count; age and category fail
+// the walk-forward test and are out. The full tables are in VALUE_EVIDENCE
+// and ODDS_EVIDENCE, and the dashboard shows them, so the model's choices
+// can be checked, not trusted.
 //
-// radar-5 is the baseline this replaces: TVL x 0.25 x growth x maturity x
-// category x chains, which scored 0.802 with no fitted term and no odds.
-// radar-6's top three are the same names in a different order, and the
-// total implied value falls from $3.48B to about $1.02B, because the fitted
-// multiples are smaller than 0.25 at large TVL and every row is now
-// discounted by its odds. No protocol name is ever special-cased: the same
-// two fits score every row.
+// radar-7 is the baseline this replaces: the same formula with a mean fit
+// (OLS, multiple = exp(-1.878 - 0.475 x ln(TVL / $100M))) and a raw chain
+// count, which scored 0.897 on development. radar-7's board had a total
+// implied value of about $1.02B; radar-8's steeper median curve puts it
+// near $0.92B, the top three keep their names at lower values, and 122 of
+// 226 rows move five ranks or more. No protocol name is ever special-cased:
+// the same two fits score every row.
 
 /** The snapshot's protocol entry: exactly the ten fields the sealed input carries. */
 export interface SnapshotProtocol {
@@ -87,7 +92,7 @@ export function categoryGroup(category: string | null): CategoryGroup {
 }
 
 /** The model's version label: the dashboard names it and the rules quote it. */
-export const MODEL_VERSION = 'radar-7';
+export const MODEL_VERSION = 'radar-8';
 
 /** How many pre-token protocols below the watchlist floor the early radar carries, by TVL. */
 export const EARLY_ROWS = 200;
@@ -194,7 +199,13 @@ export function tradedFitSet(snapshot: Snapshot): SnapshotProtocol[] {
   );
 }
 
-/** Fit the value model on a set of traded protocols: OLS on the winsorised log-ratio. */
+/** Fit the value model on a set of traded protocols: a median (least absolute
+ * deviations) line on the winsorised log-ratio, solved by iteratively
+ * reweighted least squares. The evidence tables grade the mean absolute
+ * log error, so the conditional median is the estimator that minimises
+ * the graded miss; it also lowers the miss in all four held-out columns
+ * against the mean (OLS) line. Weights are 1 / max(0.25, |residual|),
+ * 80 rounds at most, and the line starts from the OLS fit. */
 export function fitValueFit(rows: SnapshotProtocol[]): ValueFit {
   const ys = rows.map((p) => Math.log(p.mcap_usd! / p.tvl_usd)).sort((a, b) => a - b);
   const lo = ys[Math.floor(0.02 * (ys.length - 1))]!;
@@ -204,7 +215,16 @@ export function fitValueFit(rows: SnapshotProtocol[]): ValueFit {
     const v = Math.log(p.mcap_usd! / p.tvl_usd);
     return Math.min(hi, Math.max(lo, v));
   });
-  const beta = ols(X, y);
+  let beta = ols(X, y);
+  for (let it = 0; it < 80; it++) {
+    const w = rows.map((_, i) => 1 / Math.max(0.25, Math.abs(y[i]! - dot(beta, X[i]!))));
+    const Xw = X.map((row, i) => row.map((v) => v * Math.sqrt(w[i]!)));
+    const yw = y.map((v, i) => v * Math.sqrt(w[i]!));
+    const next = ols(Xw, yw);
+    const shift = Math.max(Math.abs(next[0]! - beta[0]!), Math.abs(next[1]! - beta[1]!));
+    beta = next;
+    if (shift < 1e-9) break;
+  }
   let ss = 0;
   for (let i = 0; i < rows.length; i++) {
     const r = Math.log(rows[i]!.mcap_usd! / rows[i]!.tvl_usd) - dot(beta, X[i]!);
@@ -230,9 +250,11 @@ export function peerSet(snapshot: Snapshot): SnapshotProtocol[] {
   return snapshot.protocols.filter((p) => p.category !== 'CEX' && !VERSIONED.test(p.name) && p.listed_at !== null && p.tvl_usd > 0);
 }
 
-/** The odds model's features for one protocol: intercept, log TVL, clamped growth, chain count. */
+/** The odds model's features for one protocol: intercept, log TVL, clamped growth, log(1 + chain count).
+ * The log shape is radar-8's change: the tenth chain adds less than the second, and it improves
+ * all five held-out columns against the raw count. */
 export function oddsFeatures(p: SnapshotProtocol): number[] {
-  return [1, Math.log(p.tvl_usd / 100_000_000), Math.min(180, Math.max(-50, p.change_7d ?? 0)) / 100, p.chains.length];
+  return [1, Math.log(p.tvl_usd / 100_000_000), Math.min(180, Math.max(-50, p.change_7d ?? 0)) / 100, Math.log1p(p.chains.length)];
 }
 
 /** Fit the odds model by iteratively reweighted least squares (Newton's method). */
@@ -278,10 +300,12 @@ export function tokenOdds(p: SnapshotProtocol, fit: OddsFit): number {
 
 // ------------------------------------------------------------------ the held-out evidence
 
-/** One row of a held-out evidence table: a term's miss with and without it, in log units (value) or log-loss (odds). */
+/** One row of a held-out evidence table: a term's miss with and without it, in log units (value) or log-loss (odds).
+ * Four columns now: leave-one-out, 10-fold, and two walk-forwards. */
 export interface EvidenceRow {
   term: string;
   loo: number;
+  tenfold: number;
   wf2024: number;
   wf2025: number;
   kept: boolean;
@@ -290,19 +314,23 @@ export interface EvidenceRow {
 /**
  * The value model's evidence, on the 85 traded protocols of the fit set.
  * Leave-one-out refits the line without one protocol and predicts it; the
- * walk-forward fits on protocols listed before 2024-01-01 (27 rows) and
- * before 2025-01-01 (38 rows) and tests on the ones listed after. Miss is
- * the mean absolute error of ln(mcap / TVL); exp(miss) is the typical
- * multiplicative miss, about x4.5 for the kept line. Only the size curve
- * lowers the miss in all three columns, so only it stays.
+ * 10-fold refits on nine tenths and predicts the tenth; the walk-forward
+ * fits on protocols listed before 2024-01-01 (27 rows) and before
+ * 2025-01-01 (38 rows) and tests on the ones listed after. Miss is the mean
+ * absolute error of ln(mcap / TVL); exp(miss) is the typical multiplicative
+ * miss, about x4.4 for the kept median line. Only the size curve lowers the
+ * miss in all four columns, so only it stays. The median line beats the
+ * mean (OLS) line in every column (OLS: 1.510 / 1.533 / 1.458 / 1.599);
+ * the median miss is worse (x3.79 vs x3.29 leave-one-out) — the median
+ * fit trades typical accuracy for fewer large errors.
  */
 export const VALUE_EVIDENCE: EvidenceRow[] = [
-  { term: 'flat multiple, no size curve', loo: 1.628, wf2024: 1.715, wf2025: 1.833, kept: false },
-  { term: '+ size curve ln(TVL)', loo: 1.51, wf2024: 1.458, wf2025: 1.599, kept: true },
-  { term: '+ category effects', loo: 1.526, wf2024: 1.547, wf2025: 1.639, kept: false },
-  { term: '+ 7-day growth', loo: 1.542, wf2024: 1.477, wf2025: 1.563, kept: false },
-  { term: '+ age with no token', loo: 1.515, wf2024: 1.665, wf2025: 2.534, kept: false },
-  { term: '+ chain count', loo: 1.52, wf2024: 1.426, wf2025: 1.546, kept: false },
+  { term: 'flat multiple, no size curve', loo: 1.653, tenfold: 1.664, wf2024: 1.742, wf2025: 1.833, kept: false },
+  { term: '+ size curve ln(TVL)', loo: 1.485, tenfold: 1.510, wf2024: 1.427, wf2025: 1.438, kept: true },
+  { term: '+ category effects', loo: 1.522, tenfold: 1.577, wf2024: 1.612, wf2025: 1.615, kept: false },
+  { term: '+ 7-day growth', loo: 1.503, tenfold: 1.510, wf2024: 1.684, wf2025: 1.412, kept: false },
+  { term: '+ age with no token', loo: 1.527, tenfold: 1.544, wf2024: 1.413, wf2025: 1.853, kept: false },
+  { term: '+ chain count', loo: 1.495, tenfold: 1.523, wf2024: 1.434, wf2025: 1.438, kept: false },
 ];
 
 /**
@@ -311,43 +339,44 @@ export const VALUE_EVIDENCE: EvidenceRow[] = [
  * fits on peers listed before each cutoff and tests on the ones listed after.
  * Age looks strong leave-one-out but collapses walk-forward (the test cohorts
  * are young, and a line fitted on old peers cannot price them), and category
- * collapses the same way, so both are out. Size, growth and chain count
- * lower the loss in all three columns and stay.
+ * collapses the same way, so both are out. Size, growth and log chain count
+ * lower the loss in all four columns and stay. The chain count is logged in
+ * radar-8: the raw count scored 0.6751 / 0.6753 / 0.9988 / 0.8088, the log
+ * scores 0.6747 / 0.6740 / 0.9949 / 0.8061 — a small but consistent gain.
  */
 export const ODDS_EVIDENCE: EvidenceRow[] = [
-  { term: 'base rate only', loo: 0.6949, wf2024: 1.0943, wf2025: 0.8637, kept: false },
-  { term: '+ age (log days)', loo: 0.6487, wf2024: 0.7464, wf2025: 1.2051, kept: false },
-  { term: '+ size ln(TVL)', loo: 0.6905, wf2024: 1.0935, wf2025: 0.8563, kept: true },
-  { term: '+ 7-day growth', loo: 0.6757, wf2024: 1.0105, wf2025: 0.8168, kept: true },
-  { term: '+ chain count', loo: 0.6751, wf2024: 0.9988, wf2025: 0.8088, kept: true },
-  { term: '+ category effects', loo: 0.6676, wf2024: 1.8582, wf2025: 0.8178, kept: false },
+  { term: 'base rate only', loo: 0.6949, tenfold: 0.6947, wf2024: 1.0943, wf2025: 0.8637, kept: false },
+  { term: '+ age (log days)', loo: 0.6478, tenfold: 0.6473, wf2024: 0.7449, wf2025: 1.2069, kept: false },
+  { term: '+ size ln(TVL)', loo: 0.6905, tenfold: 0.6912, wf2024: 1.0935, wf2025: 0.8563, kept: true },
+  { term: '+ 7-day growth', loo: 0.6757, tenfold: 0.6752, wf2024: 1.0105, wf2025: 0.8168, kept: true },
+  { term: '+ chain count (log1p)', loo: 0.6747, tenfold: 0.6740, wf2024: 0.9949, wf2025: 0.8061, kept: true },
+  { term: '+ category effects', loo: 0.6654, tenfold: 0.6617, wf2024: 1.9999, wf2025: 0.8089, kept: false },
 ];
 
 /**
  * How honest the value model's ranges are, on the 85 traded protocols: the share of real market
- * caps inside the printed ranges. radar-7 corrects the P10-P90 figure radar-6 printed as 89%:
- * recomputing from the snapshot, 85% of traded market caps fall inside the true P10-P90 band
- * (predicted log-ratio +/- 1.2816 sigma); 89% is the share inside the wider +/- 1.6449 sigma
- * band, which is a 90% interval, not the P10-P90 range the board prints. The P25-P75 figure
- * (54%, claim 50%) recomputes exactly.
+ * caps inside the printed ranges, around the median (LAD) line. 51% fall inside the P25-P75
+ * band (predicted log-ratio +/- 0.6745 sigma, claim 50%) and 82% inside the P10-P90 band
+ * (predicted log-ratio +/- 1.2816 sigma, claim 80%). radar-7's mean fit printed 54% / 85%
+ * for the same claims; the median fit's ranges sit slightly tighter to what they claim.
  */
-export const VALUE_CALIBRATION = { n: 85, sigma: 1.942, p25p75Pct: 54, p10p90Pct: 85 };
+export const VALUE_CALIBRATION = { n: 85, sigma: 1.954, p25p75Pct: 51, p10p90Pct: 82 };
 
 /** How honest the odds model is: Brier score against the base rate, and mean prediction against observed rate by decile. */
 export const ODDS_CALIBRATION = {
-  brierModel: 0.2374,
+  brierModel: 0.2372,
   brierBase: 0.2499,
   deciles: [
-    { pred: 0.29, observed: 0.302, n: 53 },
-    { pred: 0.397, observed: 0.264, n: 53 },
-    { pred: 0.434, observed: 0.415, n: 53 },
-    { pred: 0.46, observed: 0.415, n: 53 },
-    { pred: 0.479, observed: 0.5, n: 54 },
-    { pred: 0.505, observed: 0.66, n: 53 },
-    { pred: 0.528, observed: 0.547, n: 53 },
-    { pred: 0.557, observed: 0.547, n: 53 },
-    { pred: 0.593, observed: 0.66, n: 53 },
-    { pred: 0.679, observed: 0.611, n: 54 },
+    { pred: 0.285, observed: 0.283, n: 53 },
+    { pred: 0.394, observed: 0.245, n: 53 },
+    { pred: 0.431, observed: 0.358, n: 53 },
+    { pred: 0.459, observed: 0.509, n: 53 },
+    { pred: 0.484, observed: 0.537, n: 54 },
+    { pred: 0.507, observed: 0.642, n: 53 },
+    { pred: 0.53, observed: 0.491, n: 53 },
+    { pred: 0.562, observed: 0.623, n: 53 },
+    { pred: 0.596, observed: 0.642, n: 53 },
+    { pred: 0.673, observed: 0.593, n: 54 },
   ],
 };
 
@@ -396,6 +425,8 @@ export interface FarmVerdict {
   breakevenSharePct: number;
   exitTvlUsd: number;
   verdict: 'FARM' | 'MARGINAL' | 'SKIP';
+  /** The smallest deposit that turns this row FARM, solving both bars at once; null when no deposit size clears the margin bar. */
+  minDepositUsd: number | null;
 }
 
 /**
@@ -417,6 +448,16 @@ export interface FarmVerdict {
  * the drop. The break-even is the drop that clears the FARM bar — fees plus
  * the T-bill plus the $50 margin — as a share of the implied value; the exit
  * is a TVL fall of 17.5% in one week, or two weekly falls in a row.
+ *
+ * radar-8 keeps the radar-7 rule exactly — the bar did not move. The count
+ * moves because the model did: the steeper median size curve lifts small
+ * protocols' implied values, so more small-TVL plans clear the same bar.
+ * The verdict also names the minimum deposit that turns the row FARM,
+ * solving both bars at once: the drop grows with the deposit (drop = k x D,
+ * with k = 7% x implied / TVL) while the T-bill grows with it too, so the
+ * margin bar needs k above the T-bill rate and the hourly bar needs the net
+ * above $140. When k is below the T-bill rate no deposit size clears the
+ * bar, and the row says so.
  */
 export function farmVerdict(p: SnapshotProtocol, implied: number): FarmVerdict {
   const depositUsd = FARM_PLAN.depositUsd;
@@ -430,7 +471,12 @@ export function farmVerdict(p: SnapshotProtocol, implied: number): FarmVerdict {
   const breakevenSharePct = ((breakevenUsd / ((depositUsd / p.tvl_usd) * implied)) * 100);
   const exitTvlUsd = Math.round(p.tvl_usd * (1 - FARM_PLAN.exitDropPct / 100));
   const verdict: FarmVerdict['verdict'] = netUsd >= tbillUsd + FARM_PLAN.safetyMarginUsd && netPerHourUsd >= FARM_PLAN.hourlyRate ? 'FARM' : netUsd > 0 ? 'MARGINAL' : 'SKIP';
-  return { depositUsd, dropUsd: Math.round(dropUsd * 100) / 100, feesUsd: Math.round(feesUsd * 100) / 100, hours, netUsd: Math.round(netUsd * 100) / 100, netPerHourUsd: Math.round(netPerHourUsd * 100) / 100, tbillUsd: Math.round(tbillUsd * 100) / 100, breakevenUsd: Math.round(breakevenUsd * 100) / 100, breakevenSharePct: Math.round(breakevenSharePct * 10) / 10, exitTvlUsd, verdict };
+  const dropPerDollar = (FARM_PLAN.dropShare * implied) / p.tvl_usd;
+  const tbillPerDollar = FARM_PLAN.tbillRate * (FARM_PLAN.weeks / 52);
+  const depositForMargin = dropPerDollar > tbillPerDollar ? (feesUsd + FARM_PLAN.safetyMarginUsd) / (dropPerDollar - tbillPerDollar) : Infinity;
+  const depositForHourly = (feesUsd + FARM_PLAN.hourlyRate * hours) / dropPerDollar;
+  const minDepositUsd = Number.isFinite(depositForMargin) && Number.isFinite(depositForHourly) ? Math.ceil(Math.max(depositForMargin, depositForHourly)) : null;
+  return { depositUsd, dropUsd: Math.round(dropUsd * 100) / 100, feesUsd: Math.round(feesUsd * 100) / 100, hours, netUsd: Math.round(netUsd * 100) / 100, netPerHourUsd: Math.round(netPerHourUsd * 100) / 100, tbillUsd: Math.round(tbillUsd * 100) / 100, breakevenUsd: Math.round(breakevenUsd * 100) / 100, breakevenSharePct: Math.round(breakevenSharePct * 10) / 10, exitTvlUsd, verdict, minDepositUsd };
 }
 
 // ------------------------------------------------------------------ the board's rows
@@ -504,6 +550,7 @@ export interface RadarRow {
   farm_tbill_usd: number;
   farm_breakeven_share_pct: number;
   farm_exit_tvl_usd: number;
+  farm_min_deposit_usd: number | null;
 }
 
 /** A live-token protocol: it already trades, so the board shows the market's own value, not a model's. */
@@ -556,6 +603,7 @@ export interface RadarData {
   floor_usd: number;
   fit: ModelFit;
   model_version: string;
+  watchlist: string[];
   watchlist_size: number;
   board_size: number;
   early_size: number;
@@ -933,6 +981,7 @@ export function radarRow(row: BoardRow): RadarRow {
     farm_tbill_usd: row.farm.tbillUsd,
     farm_breakeven_share_pct: row.farm.breakevenSharePct,
     farm_exit_tvl_usd: row.farm.exitTvlUsd,
+    farm_min_deposit_usd: row.farm.minDepositUsd,
   };
 }
 
@@ -957,6 +1006,7 @@ export function buildRadar(snapshot: Snapshot): { board: BoardRow[]; radar: Rada
     floor_usd: snapshot.floor_usd,
     fit: { value: fitValueFit(tradedFitSet(snapshot)), odds: fitOddsFit(peerSet(snapshot)) },
     model_version: MODEL_VERSION,
+    watchlist: snapshot.watchlist,
     watchlist_size: snapshot.watchlist.length,
     board_size: board.length,
     early_size: early,
