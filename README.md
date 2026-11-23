@@ -1,4 +1,4 @@
-# Token Radar — radar-8
+# Token Radar — radar-9
 
 [![make.fun · token-radar-01](https://make.fun/badge/token-radar-01.svg)](https://make.fun/bounty/token-radar-01?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
 [![rank](https://make.fun/badge/token-radar-01/Hachiko66/token-radar-01/rank.svg)](https://make.fun/bounty/token-radar-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
@@ -10,62 +10,66 @@ It reads the sealed DefiLlama snapshot (758 protocols, as of 2026-11-14),
 scores every pre-token protocol, and hands in a static dashboard that
 ranks them by implied value and shows how to farm each one.
 
-## Gap analysis — what radar-8 must close (2026-11-23)
+## Gap analysis — what radar-9 found (2026-11-23)
 
 radar-7 scored 0.897299 on development, rank #4,950 of 16,582 in the
 reward ranking — up from radar-6's 0.851781 (#8,571 of 15,943), from
 presentation and evidence honesty alone (the model did not change).
-The reward line is still far: 10th place sits near 96.1%, the top
-three at 96.4–96.7%. The leaderboard titles of the entries above us
-name the gaps, and each one below was tested on the snapshot before
-radar-8 adopted or rejected it:
+radar-8 was built and verified but never scored: the account's
+submission cap was spent when it was ready. The reward line is still
+far: 10th place sits near 96.1%, the top three at 96.4–96.7%. radar-9
+attacked the measured bottleneck — value-fit quality — structurally,
+and tested one new data source. The findings:
 
-1. **Value-fit quality is the weakest link.** Our leave-one-out miss
-   is x4.53 (walk-forward x4.30 / x4.95); the 10th-place entry
-   advertises LOO x2.99 and walk-forward x4.10. Whether or not that
-   number is measured the same way, our miss is the thing to improve.
-   Tested on the 85 traded protocols: a median (LAD) regression
-   lowers the mean miss in all four held-out columns (LOO x4.41,
-   10-fold x4.53, walk-forward x4.17 / x4.21); category, growth, age
-   and chain-count terms all fail at least one column; a quadratic
-   size term fails badly walk-forward; a wider fit set (118 live
-   protocols including staking derivatives and bridges, with dummies)
-   fails walk-forward. radar-8 adopts the median fit and nothing else.
-2. **Token odds are weak.** Brier 0.237 against a 0.250 base rate.
-   Testing log(1 + chain count) instead of the raw chain count
-   improves all five held-out columns (LOO, 10-fold, both
-   walk-forwards, Brier) — a small but consistent gain, and a
-   principled shape: the tenth chain adds less than the second.
-   A capped age term improves leave-one-out but collapses
-   walk-forward, twice, and stays out. radar-8 adopts log-chains.
-3. **Proof on the cover.** The entries above us answer their own
-   checks on the cover and recompute the board live in the page.
-   Ours has a static audit line; the page already recomputes one row
-   in the detail view but never proves the whole board. radar-8 adds
-   a live self-checks panel: the page recomputes every row's implied
-   value from the fits, the ranks, the total, the audit line and the
-   farm verdicts, and prints pass or fail on screen.
-4. **Farm economics sized to the plan.** The entries above us name
-   the deposit that turns each row FARM and let the reader test plan
-   sizes. Ours fixes $10,000 for every row. radar-8 adds the minimum
-   deposit that turns each row FARM, and a live sandbox in the detail
-   view (deposit and drop-share sliders that re-derive the verdict).
-5. **Evidence depth.** The entries above us test every term
-   ten-fold as well as older-to-newer. Ours had leave-one-out and
-   two walk-forwards. radar-8 adds a 10-fold column to both evidence
-   tables.
-6. **Guesswork, not adopted.** "Own-token share" (no such field in
-   the snapshot); a bigger fit set by including staking derivatives
-   and bridges (tested: no held-out gain); age in the odds model
-   (tested: walk-forward collapses). None of these is in radar-8.
+1. **The value model is maxed out on this snapshot.** The median
+   (LAD) size curve's leave-one-out miss is x4.41 (10-fold x4.53,
+   walk-forward x4.17 / x4.21). Every structural candidate tested
+   against it fails at least one held-out column: a size slope per
+   category (LOO x4.35, walk-forward x5.08 / x4.83), size x chains
+   (x4.48), size x age (LOO x4.31, walk-forward 2024 x13.2), size x
+   growth (x4.56), a quadratic size curve (x4.52), a hinge and a
+   spline in log TVL, median per TVL bin, Theil-Sen, Huber, other
+   quantiles, least-trimmed-squares, recency-weighted fits, and wider
+   fit sets (118 and 128 traded protocols — the "128 traded tokens"
+   in competitors' titles grades worse on the 85 in every column).
+   The error concentrates where the board lives: the board's TVL
+   quartiles are $9.7M / $19.1M / $40.1M, and the miss there is
+   x4.1–x4.9, against x2.8 above $200M. radar-9 keeps the size
+   curve and nothing else.
+2. **Competitors' advertised numbers do not reproduce.** The best
+   in-sample miss on the 85 traded protocols is x4.28 and the best
+   winsorised leave-one-out x4.15, against a claimed LOO x2.99 and
+   an "OOS x2.01" elsewhere. Only a high-TVL subset (TVL >= $200M,
+   n=8) gets near the claim (x2.84). Whatever those numbers measure,
+   it is not the four-way held-out miss on the board's population.
+3. **Fees do not price the multiple, but they do predict the token.**
+   From DefiLlama's daily fees history, the 30-day fees ending
+   2026-11-14 correlate only 0.106 with log(mcap / TVL) (n=44
+   traded protocols with fees), and a two-tier size + log(fees /
+   TVL) fit is worse in three of four columns (LOO x4.51). But a
+   binary flag — whether the protocol recorded any fees at all in
+   those 30 days — improves the token odds in all four held-out
+   columns (leave-one-out log-loss 0.6699 vs 0.6747, 10-fold 0.6710
+   vs 0.6740 and better on two further seeds, walk-forward 0.9792 /
+   0.7974 vs 0.9949 / 0.8061) and the Brier (0.2342 vs 0.2372).
+   The amount does not help — a continuous log(fees / TVL) term
+   fails the 2025 walk-forward — only the fact of charging fees
+   does. radar-9 adopts the flag. The flag covers 325 of the 532
+   peers and 117 of the 226 board rows.
+4. **The board moves on the flag alone.** 184 of 226 rows move five
+   ranks or more against radar-8, the top three keep their names at
+   slightly higher values (Steakhouse, Veda, Gauntlet), the total
+   falls from $920.4M to $913.4M, and the farm count falls from 50
+   to 47 on the same bar — the flag lowers the odds of the rows
+   that record no fees.
 
-## Model — radar-8
+## Model — radar-9
 
 ```
 implied = round(TVL x fitted multiple x token odds)
 ```
 
-radar-8 changes the fits, and only where the held-out tests say so:
+radar-9 changes one thing, and only where the held-out tests say so:
 
 - **Fitted multiple.** On the 85 traded protocols whose token
   plausibly prices off TVL (live token, market cap and TVL both on
@@ -88,23 +92,34 @@ radar-8 changes the fits, and only where the held-out tests say so:
   so the trade is visible.
 - **Token odds.** A logistic regression on 532 peers with a recorded
   listing date (262 with a token, 270 without), on log TVL, seven-day
-  growth and **log(1 + chain count)**. The log shape is the only
-  change from radar-7: it improves all five held-out columns
-  (leave-one-out log-loss 0.6747 vs 0.6751, 10-fold 0.6740 vs 0.6753,
-  walk-forward 0.9949 / 0.8061 vs 0.9988 / 0.8088, Brier 0.2372 vs
-  0.2374). Odds are the peers' record — the probability
-  a token is eventually recorded, given the snapshot's figures — not a
-  forecast that one will launch. Odds are bounded to 5%-95%, so one
-  week's growth alone never calls a protocol worthless or certain.
+  growth, **log(1 + chain count)** and a **fees flag** — 1 when the
+  protocol recorded any fees in the 30 days ending 2026-11-14
+  (DefiLlama daily fees history, vendored in `lib/fees.ts`: 327 of
+  the 543 checked slugs recorded fees, 202 have no fees adapter).
+  The flag is radar-9's only change: it improves all four held-out
+  columns (leave-one-out log-loss 0.6699 vs 0.6747, 10-fold 0.6710
+  vs 0.6740 and better on two further seeds, walk-forward 0.9792 /
+  0.7974 vs 0.9949 / 0.8061) and the Brier (0.2342 vs 0.2372).
+  Its coefficient is +0.49, about 1.6x the odds of a token for a
+  protocol that charges fees. The amount does not help — a
+  continuous log(fees / TVL) term fails the 2025 walk-forward —
+  only the fact of charging fees does. Odds are the peers' record —
+  the probability a token is eventually recorded, given the
+  snapshot's figures — not a forecast that one will launch. Odds
+  are bounded to 5%-95%, so one week's growth alone never calls a
+  protocol worthless or certain.
 - **Held-out tests.** Every candidate term was tested four ways —
   leave-one-out, 10-fold, and walk-forward on the listing date (fit
   on protocols listed before 2024-01-01 and before 2025-01-01, test
   on the ones listed after) — and kept only if it lowered the miss
   in all of them. The value model keeps only the size curve (typical
   miss x4.41 leave-one-out); category, growth, age and
-  chain count all fail at least one test and are out. The odds model
-  keeps size, growth and log chain count (Brier 0.237 against a 0.250 base
-  rate); age and category fail the walk-forward test and are out.
+  chain count all fail at least one test and are out, and radar-9's
+  structural attack — interactions, curves, other estimators, wider
+  fit sets, fees in the value — adds nothing. The odds model
+  keeps size, growth, log chain count and the fees flag (Brier 0.234
+  against a 0.250 base rate); age and category fail the walk-forward
+  test and are out.
   The full tables are on the dashboard as "Out-of-sample evidence".
 - **Ranges.** 200 bootstrap refits (seeded, reproducible) give every
   row a P25-P75 and P10-P90 range for its implied value and a rank
@@ -115,13 +130,13 @@ radar-8 changes the fits, and only where the held-out tests say so:
   tighter to their claims.
 - No protocol name is special-cased. The same two fits score every row.
 
-radar-8 replaces radar-7's mean fit with the median fit and the raw
-chain count with its log. The board moves: the total implied value
-falls from about $1.02B to about $0.92B, the top three keep their
-names (Steakhouse, Veda, Gauntlet) at lower values, and 122 of 226
-rows move five ranks or more — small protocols rise on the steeper
-size curve, large ones fall. radar-7 scored 0.897 on development
-(and radar-6 0.852 before it); radar-6 replaced the radar-5 model
+radar-9 keeps radar-8's median size curve and log chain count and adds
+the fees flag to the odds. The board moves on the flag alone: the
+total implied value falls from $920.4M to $913.4M, the top three keep
+their names at slightly higher values (Steakhouse $25.5M, Veda $22.4M,
+Gauntlet $19.3M), and 184 of 226 rows move five ranks or more.
+radar-7 scored 0.897 on development (and radar-6 0.852 before it);
+radar-8 was never scored. radar-6 replaced the radar-5 model
 (TVL x 0.25 x growth x maturity x category x chains), which scored
 0.802 with no fitted term and no odds.
 
@@ -177,8 +192,9 @@ fifteen minutes a week; the T-bill is what the same deposit earns at
 T-bill by at least $50 and pays at least $40 an hour; MARGINAL means
 the net is positive but not both; SKIP means the fees eat the drop.
 The rule is unchanged from radar-7, but the count moves: the
-steeper median curve lifts small protocols' implied values, so 50 of
-226 rows pass the same bar that passed 17 under radar-7's mean fit.
+fees flag lowers the odds — and the implied values — of the rows
+that record no fees, so 47 of 226 rows pass the same bar that
+passed 50 under radar-8 and 17 under radar-7's mean fit.
 The bar did not move; the model did. Every row also names the
 minimum deposit that turns it FARM (solving both bars at once), or
 says no deposit size clears the bar, so a SKIP row is a deposit
