@@ -1,15 +1,16 @@
-// Token Radar radar-7 — a Node 22 entry, standard library only.
+// Token Radar radar-8 — a Node 22 entry, standard library only.
 //
 // What this program does, in order:
 //  1. Reads the sealed DefiLlama snapshot (758 protocols, as of 2026-11-14).
-//  2. Scores every pre-token protocol with the radar-7 model in lib/model.ts:
+//  2. Scores every pre-token protocol with the radar-8 model in lib/model.ts:
 //     implied value = TVL x fitted multiple x token odds. The multiple is
-//     fitted on the traded protocols whose token plausibly prices off TVL,
-//     and the odds come from the peers' record; every term was tested
-//     held-out twice (leave-one-out and walk-forward) and kept only if it
-//     lowered the miss in both. No name is special. radar-7 keeps radar-6's
-//     fits exactly and tightens the farm rule, headlines the evidence, and
-//     adds a machine-checkable audit line to the dashboard's data.
+//     a median (LAD) fit on the traded protocols, and the odds come from the
+//     peers' record with log(1 + chain count); every term was tested
+//     held-out four ways (leave-one-out, 10-fold, two walk-forwards) and
+//     kept only if it lowered the miss in all of them. No name is special.
+//     radar-8 replaces radar-7's mean fit and raw chain count, and adds
+//     a live self-checks panel, the minimum deposit that turns each row
+//     FARM, and a farm sandbox to the dashboard's data.
 //  3. Writes the ranked board to board.json (226 rows: 40 watchlist + 186 early).
 //  4. Writes data.js for the static dashboard, copies dashboard/ and
 //     screenshots/ through, and finishes with dossier.json for the judge.
