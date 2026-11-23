@@ -153,6 +153,18 @@ tbody tr[data-selected="true"] { background: color-mix(in srgb, var(--accent) 8%
 .kpi span { color: var(--muted); font-size: 12px; line-height: 1.4; display: block; margin-top: var(--step-1); }
 .audit-line { font-family: var(--font-num); font-size: 12px; line-height: 1.7; color: var(--muted); overflow-wrap: anywhere; border-top: 1px solid var(--border); padding-top: var(--step-3); }
 
+/* Radar-8 additions: live self-checks, farm sandbox, watchlist toggle. */
+.checks { margin-top: var(--step-4); padding: var(--step-5); display: grid; gap: var(--step-3); }
+.check-list { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--step-2); }
+.check-list li { font-size: 13px; }
+.check-list li.pass b { color: var(--accent); }
+.check-list li.fail b { color: var(--negative); }
+.sandbox { display: flex; flex-wrap: wrap; gap: var(--step-4); margin: var(--step-2) 0; }
+.sandbox label { display: grid; gap: var(--step-1); color: var(--muted); font-size: 12px; }
+.sandbox input { min-height: 36px; padding: 0 var(--step-3); border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface); width: 140px; font-family: var(--font-num); }
+.check-toggle { display: flex; align-items: center; gap: var(--step-2); color: var(--muted); font-size: 13px; min-height: 36px; }
+.check-toggle input { accent-color: var(--accent); }
+
 /* Radar-2 additions: spotlight cards, breakdown and export. */
 .spotlight-list { display: grid; gap: var(--step-2); margin-top: var(--step-3); }
 .spotlight-row { display: flex; align-items: baseline; justify-content: space-between; gap: var(--step-3); padding: var(--step-2) 0; border-top: 1px solid var(--border); }
